@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.33.93.31351",
-      "templateHash": "5486192259749704722"
+      "templateHash": "14246763532336818236"
     }
   },
   "resources": [
@@ -38,7 +38,7 @@
     },
     {
       "type": "Microsoft.Compute/virtualMachines",
-      "apiVersion": "2024-05-01",
+      "apiVersion": "2024-11-01",
       "name": "myVM1",
       "location": "eastus",
       "properties": {
@@ -62,7 +62,7 @@
     },
     {
       "type": "Microsoft.Compute/virtualMachines",
-      "apiVersion": "2024-05-01",
+      "apiVersion": "2024-11-01",
       "name": "myVM2",
       "location": "eastus",
       "properties": {
