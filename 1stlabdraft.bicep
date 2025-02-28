@@ -26,7 +26,7 @@ resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' = {
 }
 
 // Define VM1
-resource vm1 'Microsoft.Compute/virtualMachines@2024-05-01' = {
+resource vm1 'Microsoft.Compute/virtualMachines@2024-11-01' = {
   name: 'myVM1'
   location: 'eastus'
   properties: {
@@ -51,7 +51,7 @@ resource vm1 'Microsoft.Compute/virtualMachines@2024-05-01' = {
 }
 
 // Define VM2
-resource vm2 'Microsoft.Compute/virtualMachines@2024-05-01' = {
+resource vm2 'Microsoft.Compute/virtualMachines@2024-11-01' = {
   name: 'myVM2'
   location: 'eastus'
   properties: {
