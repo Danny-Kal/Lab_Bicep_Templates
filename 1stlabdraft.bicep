@@ -1,5 +1,4 @@
-// Define the virtual network
-resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' = {
+resource HubVNet 'Microsoft.Network/virtualNetworks@2024-05-01' = {
   name: 'HubVNet'
   location: 'eastus'
   properties: {
@@ -25,8 +24,63 @@ resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' = {
   }
 }
 
-// Define VM1
-resource vm1 'Microsoft.Compute/virtualMachines@2024-11-01' = {
+resource VmVNet 'Microsoft.Network/virtualNetworks@2024-05-01' = {
+  name: 'VmVNet'
+  location: 'eastus'
+  properties: {
+    addressSpace: {
+      addressPrefixes: [
+        '10.1.0.0/16'
+      ]
+    }
+    subnets: [
+      {
+        name: 'vmSubnet'
+        properties: {
+          addressPrefix: '10.1.0.0/24'
+        }
+      }
+    ]
+  }
+}
+
+resource myNIC1 'Microsoft.Network/networkInterfaces@2024-05-01' = {
+  name: 'myNIC1'
+  location: 'eastus'
+  properties: {
+    ipConfigurations: [
+      {
+        name: 'ipconfig1'
+        properties: {
+          subnet: {
+            id: resourceId('Microsoft.Network/virtualNetworks/subnets', 'VmVNet', 'vmSubnet')
+          }
+          privateIPAllocationMethod: 'Dynamic'
+        }
+      }
+    ]
+  }
+}
+
+resource myNIC2 'Microsoft.Network/networkInterfaces@2024-05-01' = {
+  name: 'myNIC2'
+  location: 'eastus'
+  properties: {
+    ipConfigurations: [
+      {
+        name: 'ipconfig1'
+        properties: {
+          subnet: {
+            id: resourceId('Microsoft.Network/virtualNetworks/subnets', 'VmVNet', 'vmSubnet')
+          }
+          privateIPAllocationMethod: 'Dynamic'
+        }
+      }
+    ]
+  }
+}
+
+resource myVM1 'Microsoft.Compute/virtualMachines@2024-11-01' = {
   name: 'myVM1'
   location: 'eastus'
   properties: {
@@ -38,7 +92,6 @@ resource vm1 'Microsoft.Compute/virtualMachines@2024-11-01' = {
       adminUsername: 'azureuser'
       adminPassword: 'P@ssword1234'
     }
-    // Removed networkProfile as NICs are not needed
     storageProfile: {
       imageReference: {
         publisher: 'Canonical'
@@ -46,12 +99,21 @@ resource vm1 'Microsoft.Compute/virtualMachines@2024-11-01' = {
         sku: '18.04-LTS'
         version: 'latest'
       }
+      osDisk: {
+        createOption: 'FromImage'
+      }
+    }
+    networkProfile: {
+      networkInterfaces: [
+        {
+          id: myNIC1.id
+        }
+      ]
     }
   }
 }
 
-// Define VM2
-resource vm2 'Microsoft.Compute/virtualMachines@2024-11-01' = {
+resource myVM2 'Microsoft.Compute/virtualMachines@2024-11-01' = {
   name: 'myVM2'
   location: 'eastus'
   properties: {
@@ -63,7 +125,6 @@ resource vm2 'Microsoft.Compute/virtualMachines@2024-11-01' = {
       adminUsername: 'azureuser'
       adminPassword: 'P@ssword1234'
     }
-    // Removed networkProfile as NICs are not needed
     storageProfile: {
       imageReference: {
         publisher: 'Canonical'
@@ -71,7 +132,16 @@ resource vm2 'Microsoft.Compute/virtualMachines@2024-11-01' = {
         sku: '18.04-LTS'
         version: 'latest'
       }
+      osDisk: {
+        createOption: 'FromImage'
+      }
+    }
+    networkProfile: {
+      networkInterfaces: [
+        {
+          id: myNIC2.id
+        }
+      ]
     }
   }
 }
-
