@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.33.93.31351",
-      "templateHash": "7796851998302769158"
+      "templateHash": "5975775778382109068"
     }
   },
   "resources": [
@@ -68,13 +68,16 @@
             "name": "ipconfig1",
             "properties": {
               "subnet": {
-                "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', 'VmVNet', 'vmSubnet')]"
+                "id": "[format('{0}/subnets/vmSubnet', resourceId('Microsoft.Network/virtualNetworks', 'VmVNet'))]"
               },
               "privateIPAllocationMethod": "Dynamic"
             }
           }
         ]
-      }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', 'VmVNet')]"
+      ]
     },
     {
       "type": "Microsoft.Network/networkInterfaces",
@@ -87,13 +90,16 @@
             "name": "ipconfig1",
             "properties": {
               "subnet": {
-                "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', 'VmVNet', 'vmSubnet')]"
+                "id": "[format('{0}/subnets/vmSubnet', resourceId('Microsoft.Network/virtualNetworks', 'VmVNet'))]"
               },
               "privateIPAllocationMethod": "Dynamic"
             }
           }
         ]
-      }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', 'VmVNet')]"
+      ]
     },
     {
       "type": "Microsoft.Compute/virtualMachines",

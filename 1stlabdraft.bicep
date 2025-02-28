@@ -53,7 +53,7 @@ resource myNIC1 'Microsoft.Network/networkInterfaces@2024-05-01' = {
         name: 'ipconfig1'
         properties: {
           subnet: {
-            id: resourceId('Microsoft.Network/virtualNetworks/subnets', 'VmVNet', 'vmSubnet')
+            id: '${VmVNet.id}/subnets/vmSubnet' // Correct subnet reference
           }
           privateIPAllocationMethod: 'Dynamic'
         }
@@ -71,7 +71,7 @@ resource myNIC2 'Microsoft.Network/networkInterfaces@2024-05-01' = {
         name: 'ipconfig1'
         properties: {
           subnet: {
-            id: resourceId('Microsoft.Network/virtualNetworks/subnets', 'VmVNet', 'vmSubnet')
+            id: '${VmVNet.id}/subnets/vmSubnet' // Correct subnet reference
           }
           privateIPAllocationMethod: 'Dynamic'
         }
