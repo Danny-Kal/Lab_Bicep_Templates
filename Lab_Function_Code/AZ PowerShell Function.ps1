@@ -16,20 +16,26 @@ if (-not $subscriptionId -or -not $resourceGroup -or -not $templateUrl) {
 }
 
 try {
-    # import-module az.accounts
-    # Authenticate with Azure (using Managed Identity or Service Principal)
+    # Authenticate with Azure (using Managed Identity)
     Connect-AzAccount -Identity
 
     # Set the context to the specified subscription
     Set-AzContext -SubscriptionId $subscriptionId
 
-    # Deploy the Bicep template
+    # Download the ARM JSON file
+    $tempFilePath = [System.IO.Path]::GetTempFileName() + ".json"
+    Invoke-WebRequest -Uri $templateUrl -OutFile $tempFilePath
+
+    # Deploy the ARM template
     $deploymentName = "framerDeployment-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
     $deployment = New-AzResourceGroupDeployment `
         -ResourceGroupName $resourceGroup `
         -Name $deploymentName `
-        -TemplateUri $templateUrl `
+        -TemplateFile $tempFilePath `
         -Mode Incremental
+
+    # Clean up the temporary file
+    Remove-Item -Path $tempFilePath -Force
 
     # Return success response
     Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
@@ -41,6 +47,11 @@ try {
     })
 }
 catch {
+    # Clean up the temporary file if it exists
+    if (Test-Path $tempFilePath) {
+        Remove-Item -Path $tempFilePath -Force
+    }
+
     # Return error response
     Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
         StatusCode = [HttpStatusCode]::InternalServerError
