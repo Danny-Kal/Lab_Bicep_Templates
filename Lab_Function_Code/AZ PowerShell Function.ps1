@@ -81,6 +81,7 @@ try {
             message = "Deployment and user creation completed successfully."
             deploymentId = $deployment.DeploymentId
             userCreationResult = $userCreationResult
+            password = $password  # Include the password in the response
         } | ConvertTo-Json
     })
 }
