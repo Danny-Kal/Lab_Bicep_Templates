@@ -37,12 +37,25 @@ try {
     # Clean up the temporary file
     Remove-Item -Path $tempFilePath -Force
 
+    # Generate dynamic user details
+    $username = "user-$deploymentName"  # Example: user-framerDeployment-20231005-123456
+    $password = "SecurePassword123!"  # You can generate a random password if needed
+    $email = "$username@buildcloudskills.com"  # Example: user-framerDeployment-20231005-123456@example.com
+    $displayName = "User $deploymentName"  # Example: User framerDeployment-20231005-123456
+    $givenName = "User"
+    $surname = "Deployment"
+    $usageLocation = "US"  # You can make this dynamic if needed
+
     # Invoke the User Creation Function
-    $userCreationUrl = "https://<your-user-creation-function-url>"  # Replace with the URL of your user creation function
+    $userCreationUrl = "https://simpleltest4framerbutton.azurewebsites.net/api/user_creation_functions"
     $userCreationBody = @{
-        username = "newuser"  # Replace with dynamic values from the request or other logic
-        password = "securepassword"
-        email = "user@example.com"
+        username = $username
+        password = $password
+        email = $email
+        displayName = $displayName
+        givenName = $givenName
+        surname = $surname
+        usageLocation = $usageLocation
     } | ConvertTo-Json
 
     try {
