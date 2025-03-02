@@ -37,12 +37,37 @@ try {
     # Clean up the temporary file
     Remove-Item -Path $tempFilePath -Force
 
-    # Return success response
+    # Invoke the User Creation Function
+    $userCreationUrl = "https://<your-user-creation-function-url>"  # Replace with the URL of your user creation function
+    $userCreationBody = @{
+        username = "newuser"  # Replace with dynamic values from the request or other logic
+        password = "securepassword"
+        email = "user@example.com"
+    } | ConvertTo-Json
+
+    try {
+        $userCreationResponse = Invoke-WebRequest -Uri $userCreationUrl -Method Post -Body $userCreationBody -ContentType "application/json"
+        $userCreationResult = $userCreationResponse.Content | ConvertFrom-Json
+    }
+    catch {
+        # Handle user creation failure
+        Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
+            StatusCode = [HttpStatusCode]::InternalServerError
+            Body = @{
+                error = "ARM deployment succeeded, but user creation failed."
+                details = $_.Exception.Message
+            } | ConvertTo-Json
+        })
+        return
+    }
+
+    # Return success response (including user creation result)
     Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
         StatusCode = [HttpStatusCode]::OK
         Body = @{
-            message = "Deployment started successfully."
+            message = "Deployment and user creation completed successfully."
             deploymentId = $deployment.DeploymentId
+            userCreationResult = $userCreationResult
         } | ConvertTo-Json
     })
 }
@@ -56,7 +81,7 @@ catch {
     Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
         StatusCode = [HttpStatusCode]::InternalServerError
         Body = @{
-            error = "Failed to trigger deployment."
+            error = "Failed to trigger deployment or user creation."
             details = $_.Exception.Message
         } | ConvertTo-Json
     })
