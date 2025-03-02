@@ -1,6 +1,5 @@
 using namespace System.Net
 
-# Input bindings are passed in via the param block
 param($Request, $TriggerMetadata)
 
 # Parse request body
@@ -25,16 +24,19 @@ if (-not $username -or -not $password -or -not $email -or -not $displayName -or 
 
 # Authenticate with Microsoft Graph
 try {
-    $tenantId = $env:Graph-Users_TenantId
-    $appId = $env:Graph-Users_AuthAppId
-    $appSecret = $env:Graph-Users_AuthSecret
+    Write-Output "Authenticating with Microsoft Graph..."
+    $tenantId = $env:Graph_Users_TenantId
+    $appId = $env:Graph_Users_AuthAppId
+    $appSecret = $env:Graph_Users_AuthSecret
 
     $securePassword = ConvertTo-SecureString -String $appSecret -AsPlainText -Force
     $credential = New-Object System.Management.Automation.PSCredential($appId, $securePassword)
 
     Connect-MgGraph -ClientSecretCredential $credential -TenantId $tenantId
+    Write-Output "Authentication successful."
 }
 catch {
+    Write-Output "Authentication failed: $($_.Exception.Message)"
     Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
         StatusCode = [HttpStatusCode]::InternalServerError
         Body = @{
@@ -47,6 +49,7 @@ catch {
 
 # Create the user
 try {
+    Write-Output "Creating user with email: $email"
     $PasswordProfile = New-Object -TypeName Microsoft.Graph.PowerShell.Models.MicrosoftGraphPasswordProfile
     $PasswordProfile.Password = $password
 
@@ -60,7 +63,7 @@ try {
         -PasswordProfile $PasswordProfile `
         -AccountEnabled $true
 
-    # Return success response
+    Write-Output "User created successfully. User ID: $($user.Id)"
     Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
         StatusCode = [HttpStatusCode]::OK
         Body = @{
@@ -71,6 +74,7 @@ try {
     })
 }
 catch {
+    Write-Output "Failed to create user: $($_.Exception.Message)"
     Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
         StatusCode = [HttpStatusCode]::InternalServerError
         Body = @{
