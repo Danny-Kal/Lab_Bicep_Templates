@@ -56,6 +56,7 @@ try {
     Write-Output "Creating user with email: $email"
     $PasswordProfile = New-Object -TypeName Microsoft.Graph.PowerShell.Models.MicrosoftGraphPasswordProfile
     $PasswordProfile.Password = $password
+    $PasswordProfile.ForceChangePasswordNextSignIn = $false  # Disable password reset on first login
 
     $user = New-MgUser `
         -DisplayName $displayName `
