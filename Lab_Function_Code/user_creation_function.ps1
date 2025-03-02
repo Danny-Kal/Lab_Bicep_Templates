@@ -3,82 +3,85 @@ using namespace System.Net
 param($Request, $TriggerMetadata)
 
 # Parse request body
-$username = $Request.Body.username
-$password = $Request.Body.password
-$email = $Request.Body.email
-$displayName = $Request.Body.displayName
-$givenName = $Request.Body.givenName
-$surname = $Request.Body.surname
-$usageLocation = $Request.Body.usageLocation
+$subscriptionId = $Request.Body.subscriptionId
+$resourceGroup = $Request.Body.resourceGroup
+$templateUrl = $Request.Body.templateUrl
 
-# Validate required parameters
-if (-not $username -or -not $password -or -not $email -or -not $displayName -or -not $givenName -or -not $surname -or -not $usageLocation) {
+if (-not $subscriptionId -or -not $resourceGroup -or -not $templateUrl) {
     Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
         StatusCode = [HttpStatusCode]::BadRequest
-        Body = @{
-            error = "Missing required parameters. Please provide username, password, email, displayName, givenName, surname, and usageLocation."
-        } | ConvertTo-Json
+        Body = "Please pass subscriptionId, resourceGroup, and templateUrl in the request body."
     })
     return
 }
 
-# Authenticate with Microsoft Graph
 try {
-    Write-Output "Authenticating with Microsoft Graph..."
-    $tenantId = $env:Graph_Users_TenantId
-    $appId = $env:Graph_Users_AuthAppId
-    $appSecret = $env:Graph_Users_AuthSecret
+    # Authenticate with Azure (using Managed Identity)
+    Connect-AzAccount -Identity
 
-    $securePassword = ConvertTo-SecureString -String $appSecret -AsPlainText -Force
-    $credential = New-Object System.Management.Automation.PSCredential($appId, $securePassword)
+    # Set the context to the specified subscription
+    Set-AzContext -SubscriptionId $subscriptionId
 
-    Connect-MgGraph -ClientSecretCredential $credential -TenantId $tenantId
-    Write-Output "Authentication successful."
-}
-catch {
-    Write-Output "Authentication failed: $($_.Exception.Message)"
-    Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
-        StatusCode = [HttpStatusCode]::InternalServerError
-        Body = @{
-            error = "Failed to authenticate with Microsoft Graph."
-            details = $_.Exception.Message
-        } | ConvertTo-Json
-    })
-    return
-}
+    # Download the ARM JSON file
+    $tempFilePath = [System.IO.Path]::GetTempFileName() + ".json"
+    Invoke-WebRequest -Uri $templateUrl -OutFile $tempFilePath
 
-# Create the user
-try {
-    Write-Output "Creating user with email: $email"
-    $PasswordProfile = New-Object -TypeName Microsoft.Graph.PowerShell.Models.MicrosoftGraphPasswordProfile
-    $PasswordProfile.Password = $password
+    # Deploy the ARM template
+    $deploymentName = "framerDeployment-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+    $deployment = New-AzResourceGroupDeployment `
+        -ResourceGroupName $resourceGroup `
+        -Name $deploymentName `
+        -TemplateFile $tempFilePath `
+        -Mode Incremental
 
-    $user = New-MgUser `
-        -DisplayName $displayName `
-        -GivenName $givenName `
-        -Surname $surname `
-        -UserPrincipalName $email `
-        -UsageLocation $usageLocation `
-        -MailNickname $username `
-        -PasswordProfile $PasswordProfile `
-        -AccountEnabled $true
+    # Clean up the temporary file
+    Remove-Item -Path $tempFilePath -Force
 
-    Write-Output "User created successfully. User ID: $($user.Id)"
+    # Invoke the User Creation Function
+    $userCreationUrl = "https://simpleltest4framerbutton.azurewebsites.net/api/user_creation_functions"  # Replace with the URL of your user creation function
+    $userCreationBody = @{
+        username = "newuser"  # Replace with dynamic values from the request or other logic
+        password = "securepassword"
+        email = "user@example.com"
+    } | ConvertTo-Json
+
+    try {
+        $userCreationResponse = Invoke-WebRequest -Uri $userCreationUrl -Method Post -Body $userCreationBody -ContentType "application/json"
+        $userCreationResult = $userCreationResponse.Content | ConvertFrom-Json
+    }
+    catch {
+        # Handle user creation failure
+        Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
+            StatusCode = [HttpStatusCode]::InternalServerError
+            Body = @{
+                error = "ARM deployment succeeded, but user creation failed."
+                details = $_.Exception.Message
+            } | ConvertTo-Json
+        })
+        return
+    }
+
+    # Return success response (including user creation result)
     Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
         StatusCode = [HttpStatusCode]::OK
         Body = @{
-            status = "success"
-            userId = $user.Id
-            message = "User created successfully."
+            message = "Deployment and user creation completed successfully."
+            deploymentId = $deployment.DeploymentId
+            userCreationResult = $userCreationResult
         } | ConvertTo-Json
     })
 }
 catch {
-    Write-Output "Failed to create user: $($_.Exception.Message)"
+    # Clean up the temporary file if it exists
+    if (Test-Path $tempFilePath) {
+        Remove-Item -Path $tempFilePath -Force
+    }
+
+    # Return error response
     Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
         StatusCode = [HttpStatusCode]::InternalServerError
         Body = @{
-            error = "Failed to create user."
+            error = "Failed to trigger deployment or user creation."
             details = $_.Exception.Message
         } | ConvertTo-Json
     })
