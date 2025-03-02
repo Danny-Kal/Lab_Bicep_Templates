@@ -73,6 +73,7 @@ try {
         Body = @{
             status = "success"
             userId = $user.Id
+            username = $email
             password = $password  # Include the password in the response
             message = "User created successfully."
         } | ConvertTo-Json
