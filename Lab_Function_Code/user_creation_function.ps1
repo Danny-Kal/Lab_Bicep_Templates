@@ -5,6 +5,7 @@ param($Request, $TriggerMetadata)
 # Import only the required Microsoft.Graph sub-modules
 Import-Module Microsoft.Graph.Authentication
 Import-Module Microsoft.Graph.Users
+Import-Module Microsoft.Graph.Groups
 
 # Parse request body
 $username = $Request.Body.username
@@ -69,6 +70,18 @@ try {
         -AccountEnabled:$true
 
     Write-Output "User created successfully. User ID: $($user.Id)"
+
+    # Add the user to the "NoMFAUsers" group
+    $groupId = "ed6e6489-0d2b-4287-8b60-39634c0a49a7"  # Replace with the actual Object ID of the "NoMFAUsers" group
+    $group = Get-MgGroup -GroupId $groupId
+    if (-not $group) {
+        throw "Group 'NoMFAUsers' not found."
+    }
+
+    New-MgGroupMember -GroupId $groupId -DirectoryObjectId $user.Id
+    Write-Output "User added to the 'NoMFAUsers' group."
+
+    # Return success response
     Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
         StatusCode = [HttpStatusCode]::OK
         Body = @{
@@ -76,16 +89,16 @@ try {
             userId = $user.Id
             username = $email
             password = $password  # Include the password in the response
-            message = "User created successfully."
+            message = "User created successfully and added to the 'NoMFAUsers' group."
         } | ConvertTo-Json
     })
 }
 catch {
-    Write-Output "Failed to create user: $($_.Exception.Message)"
+    Write-Output "Failed to create user or add to group: $($_.Exception.Message)"
     Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
         StatusCode = [HttpStatusCode]::InternalServerError
         Body = @{
-            error = "Failed to create user."
+            error = "Failed to create user or add to group."
             details = $_.Exception.Message
         } | ConvertTo-Json
     })
