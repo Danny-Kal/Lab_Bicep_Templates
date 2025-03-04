@@ -1,0 +1,137 @@
+import { addPropertyControls, ControlType } from "framer"
+import React, { useState } from "react"
+
+export function AzureFunctionButton(props) {
+    // State to store the response data
+    const [responseData, setResponseData] = useState(null)
+    const [loading, setLoading] = useState(false)
+    const [error, setError] = useState(null)
+
+    // Function to handle the button click
+    const handleClick = async () => {
+        setLoading(true)
+        setError(null)
+
+        // URL of your Azure Function
+        const url =
+            "https://simpleltest4framerbutton.azurewebsites.net/api/HttpTrigger1"
+
+        // Data to send in the request body
+        const data = {
+            subscriptionId: "2a53178d-15e9-4710-b06f-e289b4e672c0", // Replace with your subscription ID
+            resourceGroup: "FunctionAppTests", // Replace with your resource group name
+            templateUrl:
+                "https://raw.githubusercontent.com/Danny-Kal/Lab_Bicep_Templates/refs/heads/main/1stlabdraft.json", // Replace with your template URL
+        }
+
+        console.log("Button clicked! Sending request to Azure Function...")
+
+        try {
+            // Send the POST request to the Azure Function
+            const response = await fetch(url, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(data), // Convert the data to JSON
+            })
+
+            console.log("Request sent. Waiting for response...")
+
+            // Check if the request was successful
+            if (!response.ok) {
+                const errorDetails = await response.text()
+                console.error(
+                    "Request failed with status:",
+                    response.status,
+                    "Details:",
+                    errorDetails
+                )
+                throw new Error(
+                    `Request failed: ${response.status} - ${errorDetails}`
+                )
+            }
+
+            // Parse the response
+            const result = await response.json()
+            console.log("Response from Azure Function:", result)
+
+            // Update state with the response data
+            setResponseData(result)
+        } catch (error) {
+            console.error("Error sending request:", error)
+            setError(error.message)
+        } finally {
+            setLoading(false)
+        }
+    }
+
+    return (
+        <div style={containerStyle}>
+            {/* Button to trigger the Azure Function */}
+            <button
+                onClick={handleClick}
+                style={buttonStyle}
+                disabled={loading}
+            >
+                {loading ? "Loading..." : "Trigger Workflow"}
+            </button>
+
+            {/* Display the response data - updated to match new response structure */}
+            {responseData && (
+                <div style={responseStyle}>
+                    <h3>Response:</h3>
+                    <p>
+                        <strong>Username:</strong> {responseData.username}
+                    </p>
+                    <p>
+                        <strong>Password:</strong> {responseData.password}
+                    </p>
+                    <p>
+                        <strong>Deployment Name:</strong>{" "}
+                        {responseData.deploymentName}
+                    </p>
+                </div>
+            )}
+
+            {/* Display error message if any */}
+            {error && <p style={errorStyle}>Error: {error}</p>}
+        </div>
+    )
+}
+
+// Styles for the component
+const containerStyle = {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: "10px",
+    padding: "20px",
+}
+
+const buttonStyle = {
+    padding: "10px 20px",
+    backgroundColor: "#0078D7",
+    color: "white",
+    border: "none",
+    borderRadius: "5px",
+    cursor: "pointer",
+}
+
+const responseStyle = {
+    marginTop: "20px",
+    padding: "10px",
+    border: "1px solid #ddd",
+    borderRadius: "5px",
+    backgroundColor: "#f9f9f9",
+}
+
+const errorStyle = {
+    color: "red",
+    marginTop: "10px",
+}
+
+// Add property controls for Framer (optional)
+addPropertyControls(AzureFunctionButton, {
+    // Add any custom properties here if needed
+})
