@@ -150,17 +150,48 @@ try {
     # Store deployment-account mapping in Table Storage (optional)
     # This could be added here if needed for tracking purposes
 
-    # Return success response
-    Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
-        StatusCode = [HttpStatusCode]::OK
-        Body = @{
-            message = "Deployment and account assignment completed successfully."
-            deploymentId = $deployment.DeploymentId
-            deploymentName = $deploymentName
+    # Call the TOTP generation function to get a verification code
+    try {
+        $totpFunctionUrl = "https://simpleltest4framerbutton.azurewebsites.net/api/totptriggertest"
+        $totpRequestBody = @{
             username = $username
-            password = $password
         } | ConvertTo-Json
-    })
+        
+        Write-Host "Calling TOTP function for username: $username"
+        $totpResponse = Invoke-RestMethod -Uri $totpFunctionUrl -Method Post -Body $totpRequestBody -ContentType "application/json"
+        Write-Host "TOTP function called successfully"
+        
+        # Return success response with TOTP information
+        Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
+            StatusCode = [HttpStatusCode]::OK
+            Body = @{
+                message = "Deployment and account assignment completed successfully."
+                deploymentId = $deployment.DeploymentId
+                deploymentName = $deploymentName
+                username = $username
+                password = $password
+                totpCode = $totpResponse.code
+                totpExpiryTime = $totpResponse.expiryTime
+                totpSecondsRemaining = $totpResponse.secondsRemaining
+            } | ConvertTo-Json
+        })
+    }
+    catch {
+        # If TOTP generation fails, still return the account but without TOTP
+        Write-Warning "Failed to generate TOTP code: $_"
+        
+        Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
+            StatusCode = [HttpStatusCode]::OK
+            Body = @{
+                message = "Deployment and account assignment completed successfully, but TOTP generation failed."
+                deploymentId = $deployment.DeploymentId
+                deploymentName = $deploymentName
+                username = $username
+                password = $password
+                totpError = $_.Exception.Message
+            } | ConvertTo-Json
+        })
+    }
 }
 catch {
     # Clean up the temporary file if it exists
