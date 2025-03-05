@@ -1,0 +1,3 @@
+pyotp
+azure-identity
+azure-keyvault-secrets
