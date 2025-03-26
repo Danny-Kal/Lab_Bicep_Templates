@@ -94,15 +94,18 @@ function Get-AvailableAccount {
 try {
     # Parse request
     $requestBody = $Request.Body
-    $deploymentId = $requestBody.deploymentId
-    $labId = $requestBody.labId
     $subscriptionId = $requestBody.subscriptionId
     
+    # Generate tracking IDs for the lab deployment if not provided
+    $deploymentName = "framerDeployment-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+    $deploymentId = $requestBody.deploymentId ?? "deploy-$deploymentName"
+    $labId = $requestBody.labId ?? $deploymentName
+    
     # Validate required parameters
-    if (-not $deploymentId -or -not $labId -or -not $subscriptionId) {
+    if (-not $subscriptionId) {
         Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
             StatusCode = [HttpStatusCode]::BadRequest
-            Body = "Please provide deploymentId, labId, and subscriptionId in the request body."
+            Body = "Please provide subscriptionId in the request body."
         })
         return
     }
@@ -139,6 +142,9 @@ try {
             resourceGroup = $account.ResourceGroup
             assignedTo = $account.AssignedTo
             lastUsed = $account.LastUsed
+            deploymentId = $deploymentId
+            deploymentName = $deploymentName
+            labId = $labId
         } | ConvertTo-Json
     })
 }
