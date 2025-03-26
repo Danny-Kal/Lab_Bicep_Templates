@@ -76,6 +76,11 @@ function Get-AvailableAccount {
             $Pool[$username].LastUsed = Get-Date -Format o
             $Pool[$username].AssignedTo = $DeploymentId
             
+            # Ensure the account has a ResourceGroup property
+            if (-not $Pool[$username].ContainsKey("ResourceGroup")) {
+                Write-Warning "Account $username does not have a ResourceGroup assigned. This should be configured in advance."
+            }
+            
             Write-Host "Assigned account $username to deployment $DeploymentId for lab $LabId"
             return $Pool[$username]
         }
@@ -87,13 +92,13 @@ function Get-AvailableAccount {
 
 # Parse request body
 $subscriptionId = $Request.Body.subscriptionId
-$resourceGroup = $Request.Body.resourceGroup
+$resourceGroup = $Request.Body.resourceGroup  # Now optional
 $templateUrl = $Request.Body.templateUrl
 
-if (-not $subscriptionId -or -not $resourceGroup -or -not $templateUrl) {
+if (-not $subscriptionId -or -not $templateUrl) {
     Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
         StatusCode = [HttpStatusCode]::BadRequest
-        Body = "Please pass subscriptionId, resourceGroup, and templateUrl in the request body."
+        Body = "Please pass subscriptionId and templateUrl in the request body."
     })
     return
 }
@@ -109,18 +114,8 @@ try {
     $tempFilePath = [System.IO.Path]::GetTempFileName() + ".json"
     Invoke-WebRequest -Uri $templateUrl -OutFile $tempFilePath
 
-    # Deploy the ARM template
-    $deploymentName = "framerDeployment-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
-    $deployment = New-AzResourceGroupDeployment `
-        -ResourceGroupName $resourceGroup `
-        -Name $deploymentName `
-        -TemplateFile $tempFilePath `
-        -Mode Incremental
-
-    # Clean up the temporary file
-    Remove-Item -Path $tempFilePath -Force
-
     # Generate tracking IDs for the lab deployment
+    $deploymentName = "framerDeployment-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
     $deploymentTrackingId = "deploy-$deploymentName"
     $labTrackingId = $deploymentName
 
@@ -140,16 +135,92 @@ try {
         return
     }
     
+    # Determine which resource group to use
+    if (-not $resourceGroup) {
+        # Use the resource group associated with the account
+        $resourceGroup = $account.ResourceGroup
+        Write-Host "Using resource group $resourceGroup from account pool"
+        
+        if (-not $resourceGroup) {
+            Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
+                StatusCode = [HttpStatusCode]::InternalServerError
+                Body = @{
+                    error = "No resource group specified and no resource group assigned to the user account."
+                } | ConvertTo-Json
+            })
+            return
+        }
+    }
+    
+    # Deploy the ARM template
+    $deployment = New-AzResourceGroupDeployment `
+        -ResourceGroupName $resourceGroup `
+        -Name $deploymentName `
+        -TemplateFile $tempFilePath `
+        -Mode Incremental
+
+    # Clean up the temporary file
+    Remove-Item -Path $tempFilePath -Force
+    
     # Save the updated pool with the new assignment
     Save-AccountPool -Pool $accountPool
+
+    # Authenticate with Microsoft Graph
+    try {
+        Write-Output "Authenticating with Microsoft Graph..."
+        $tenantId = $env:Graph_Users_TenantId
+        $appId = $env:Graph_Users_AuthAppId
+        $appSecret = $env:Graph_Users_AuthSecret
+
+        $securePassword = ConvertTo-SecureString -String $appSecret -AsPlainText -Force
+        $credential = New-Object System.Management.Automation.PSCredential($appId, $securePassword)
+
+        Connect-MgGraph -ClientSecretCredential $credential -TenantId $tenantId
+        Write-Output "Authentication successful."
+    }
+    catch {
+        Write-Output "Authentication failed: $($_.Exception.Message)"
+        # Continue execution - Graph authentication failure shouldn't fail the entire deployment
+    }
     
-    # Extract the actual Azure AD account credentials to return
+    # Assign RBAC permissions to the user for this resource group
+    try {
+        # Get the user's ObjectId using Microsoft Graph
+        Write-Host "Looking up user ObjectId via Microsoft Graph: $($account.Username)"
+        $graphUser = Get-MgUser -Filter "userPrincipalName eq '$($account.Username)'" -ErrorAction Stop
+        
+        if ($graphUser) {
+            $userObjectId = $graphUser.Id
+            Write-Host "Found user ObjectId: $userObjectId"
+            
+            # Create role assignment using ObjectId
+            $roleDefinitionName = "Contributor"
+            $roleAssignment = New-AzRoleAssignment -ObjectId $userObjectId `
+                -RoleDefinitionName $roleDefinitionName `
+                -ResourceGroupName $resourceGroup `
+                -ErrorAction Stop
+                
+            Write-Host "Created RBAC assignment for user $($account.Username) on resource group $resourceGroup"
+        }
+        else {
+            Write-Warning "User not found in Azure AD: $($account.Username)"
+        }
+    }
+    catch {
+        # Check if error is because assignment already exists
+        if ($_.Exception.Message -like "*exists*") {
+            Write-Host "RBAC assignment already exists for user $($account.Username) on resource group $resourceGroup"
+        }
+        else {
+            Write-Warning "Failed to assign RBAC permissions: $_"
+        }
+        # Continue execution - RBAC failure shouldn't fail the entire deployment
+    }
+    
+    # Extract the account credentials to return
     $username = $account.Username
     $password = $account.Password
     
-    # Store deployment-account mapping in Table Storage (optional)
-    # This could be added here if needed for tracking purposes
-
     # Call the TOTP generation function to get a verification code
     try {
         $totpFunctionUrl = "https://simpleltest4framerbutton.azurewebsites.net/api/totptriggertest"
@@ -170,6 +241,7 @@ try {
                 deploymentName = $deploymentName
                 username = $username
                 password = $password
+                resourceGroup = $resourceGroup
                 totpCode = $totpResponse.code
                 totpExpiryTime = $totpResponse.expiryTime
                 totpSecondsRemaining = $totpResponse.secondsRemaining
@@ -188,6 +260,7 @@ try {
                 deploymentName = $deploymentName
                 username = $username
                 password = $password
+                resourceGroup = $resourceGroup
                 totpError = $_.Exception.Message
             } | ConvertTo-Json
         })
