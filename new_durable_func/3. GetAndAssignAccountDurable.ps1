@@ -61,7 +61,7 @@ try {
     else {
         # Find first available account
         Write-Host "Finding available account..."
-        $filter = "IsInUse eq 'false'"
+        $filter = "IsInUse eq false"
         $availableAccounts = Get-AzTableRow -Table $table -CustomFilter $filter
         
         if (-not $availableAccounts -or $availableAccounts.Count -eq 0) {
