@@ -1,0 +1,10 @@
+{
+    "bindings": [
+      {
+        "name": "InputData",
+        "type": "activityTrigger",
+        "direction": "in"
+      }
+    ],
+    "scriptFile": "run.ps1"
+  }
