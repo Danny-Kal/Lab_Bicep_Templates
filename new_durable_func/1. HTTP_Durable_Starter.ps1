@@ -190,18 +190,19 @@ try {
             # Convert to hashtable, ensuring string properties remain as strings
             $inputData = @{}
             foreach ($prop in $jsonObject.PSObject.Properties) {
-                # Ensure subscription ID is always a string
-                if ($prop.Name -eq "subscriptionId" -and $prop.Value) {
-                    $inputData[$prop.Name] = $prop.Value.ToString()
-                    Write-DetailedLog -Message "Explicitly set subscriptionId as string" -Level "DEBUG" -Data @{
-                        subscriptionIdType = $prop.Value.GetType().Name
-                        subscriptionIdValue = $prop.Value
+                # Ensure all URL values and IDs are explicitly converted to strings
+                if ($prop.Name -eq "subscriptionId" -or $prop.Name -eq "templateUrl" -or $prop.Name -eq "roleDefinitionName") {
+                    $inputData[$prop.Name] = "$($prop.Value)"
+                    Write-DetailedLog -Message "Explicitly set $($prop.Name) as string" -Level "DEBUG" -Data @{
+                        propertyName = $prop.Name
+                        propertyValue = "$($prop.Value)"
+                        propertyType = $prop.Value?.GetType().Name
                     }
                 } else {
                     $inputData[$prop.Name] = $prop.Value
                 }
             }
-        }
+        } # Add this closing brace for the try block
         catch {
             Write-DetailedLog -Message "Failed to parse string body as JSON" -Level "ERROR" -Data @{
                 errorMessage = $_.Exception.Message

@@ -6,6 +6,10 @@ param($Context)
 # This function only coordinates the workflow and doesn't implement business logic
 try {
     $input = $Context.Input
+    
+    # Debug log to see the template URL being received
+    Write-Host "DEBUG: Template URL received: '$($input.templateUrl)'"
+    
     $orchestratorOutput = @{
         steps = @{}
         status = "Running"
@@ -53,10 +57,10 @@ try {
     }
     
     $rbacResult = Invoke-DurableActivity -FunctionName 'AssignRBACPermissionDurable' -Input @{
-        subscriptionId = $input.subscriptionId
-        resourceGroup = $accountResult.resourceGroup
-        username = $accountResult.username
-        roleDefinitionName = $input.roleDefinitionName ?? "Contributor"
+        subscriptionId = $input.subscriptionId.ToString()
+        resourceGroup = $accountResult.resourceGroup.ToString()
+        username = $accountResult.username.ToString()
+        roleDefinitionName = ($input.roleDefinitionName ?? "Contributor").ToString()
     }
 
     if ($rbacResult.error) {
@@ -94,38 +98,64 @@ try {
     $orchestratorOutput.steps.rbacAssignment.endTime = (Get-Date).ToString('o')
 
     # STEP 3: Deploy lab resources (if templateUrl is provided)
-    if ($input.templateUrl) {
-        $orchestratorOutput.steps.resourceDeployment = @{
-            status = "Running"
-            startTime = (Get-Date).ToString('o')
+    try {
+        # Safely extract the template URL
+        $templateUrlString = [string]::Empty
+        if ($input.templateUrl -ne $null) {
+            $templateUrlString = $input.templateUrl.ToString()
+            Write-Host "Extracted template URL: '$templateUrlString'"
         }
         
-        $deployResult = Invoke-DurableActivity -FunctionName 'DeployLabResourcesDurable' -Input @{
-            subscriptionId = $input.subscriptionId
-            resourceGroup = $accountResult.resourceGroup
-            templateUrl = $input.templateUrl
-            deploymentId = $accountResult.deploymentId
-        }
+        if (-not [string]::IsNullOrEmpty($templateUrlString)) {
+            $orchestratorOutput.steps.resourceDeployment = @{
+                status = "Running"
+                startTime = (Get-Date).ToString('o')
+            }
+            
+            Write-Host "Creating deployment input with URL: '$templateUrlString'"
+            
+            $deployInput = @{
+                subscriptionId = $input.subscriptionId.ToString()
+                resourceGroup = $accountResult.resourceGroup.ToString()
+                templateUrl = $templateUrlString
+                deploymentId = $accountResult.deploymentId.ToString()
+            }
+            
+            Write-Host "Calling DeplyLabResourcesDurable function"
+            $deployResult = Invoke-DurableActivity -FunctionName 'DeplyLabResourcesDurable' -Input $deployInput
+            
+            if ($deployResult.error) {
+                $orchestratorOutput.steps.resourceDeployment.status = "Failed"
+                $orchestratorOutput.steps.resourceDeployment.error = $deployResult.error
+                $orchestratorOutput.steps.resourceDeployment.endTime = (Get-Date).ToString('o')
+                
+                # Fail the entire orchestration
+                $orchestratorOutput.status = "Failed"
+                $orchestratorOutput.error = "Failed to deploy resources: $($deployResult.error)"
+                $orchestratorOutput.endTime = (Get-Date).ToString('o')
+                return $orchestratorOutput
+            }
 
-        if ($deployResult.error) {
-            $orchestratorOutput.steps.resourceDeployment.status = "Failed"
-            $orchestratorOutput.steps.resourceDeployment.error = $deployResult.error
+            # Resource deployment successful
+            $orchestratorOutput.steps.resourceDeployment.status = "Succeeded"
+            $orchestratorOutput.steps.resourceDeployment.result = $deployResult
             $orchestratorOutput.steps.resourceDeployment.endTime = (Get-Date).ToString('o')
-            
-            # Note: We don't automatically rollback if resource deployment fails,
-            # as the user might want to retry or debug. They can call cleanup manually.
-            
-            # Fail the entire orchestration
-            $orchestratorOutput.status = "Failed"
-            $orchestratorOutput.error = "Failed to deploy resources: $($deployResult.error)"
-            $orchestratorOutput.endTime = (Get-Date).ToString('o')
-            return $orchestratorOutput
+        } else {
+            Write-Host "No valid template URL found, skipping deployment step"
         }
-
-        # Resource deployment successful
-        $orchestratorOutput.steps.resourceDeployment.status = "Succeeded"
-        $orchestratorOutput.steps.resourceDeployment.result = $deployResult
-        $orchestratorOutput.steps.resourceDeployment.endTime = (Get-Date).ToString('o')
+    } catch {
+        Write-Host "ERROR processing template URL: $($_.Exception.Message)"
+        Write-Host "ERROR stack trace: $($_.ScriptStackTrace)"
+        
+        $orchestratorOutput.steps.resourceDeployment = @{
+            status = "Failed"
+            error = "Error processing template URL: $($_.Exception.Message)"
+            startTime = (Get-Date).ToString('o')
+            endTime = (Get-Date).ToString('o')
+        }
+        
+        # Don't fail the entire orchestration for template URL processing errors
+        Write-Host "Continuing without resource deployment due to template URL error"
     }
 
     # All steps completed successfully
@@ -134,13 +164,18 @@ try {
         message = "Lab environment setup completed successfully"
         accountInfo = $accountResult
         rbacInfo = $rbacResult
-        deployInfo = $input.templateUrl ? $deployResult : "No deployment was requested"
+        deployInfo = $orchestratorOutput.steps.ContainsKey('resourceDeployment') ? 
+                    ($orchestratorOutput.steps.resourceDeployment.status -eq "Succeeded" ? $deployResult : "Deployment failed") : 
+                    "No deployment was requested"
     }
     $orchestratorOutput.endTime = (Get-Date).ToString('o')
     return $orchestratorOutput
 }
 catch {
     # Handle unexpected errors in the orchestrator
+    Write-Host "Critical orchestrator error: $($_.Exception.Message)"
+    Write-Host "Stack trace: $($_.ScriptStackTrace)"
+    
     return @{
         status = "Failed"
         error = "Orchestrator error: $($_.Exception.Message)"
