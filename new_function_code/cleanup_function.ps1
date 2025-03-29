@@ -86,8 +86,8 @@ function Release-AccountToPool {
     $account = $accounts[0]
     
     # Release the account back to the pool
-    $account.IsInUse = "false"  # Use string "false" instead of boolean for compatibility
-    $account.AssignedTo = ""    # Use empty string instead of null
+    $account.IsInUse = $false    # Keep as boolean for consistency with other functions
+    $account.AssignedTo = ""     # Use empty string instead of null
     # Update LastUsed instead of non-existent LastReleased property
     $account.LastUsed = [DateTime]::UtcNow.ToString("o")
     
