@@ -101,6 +101,20 @@ try {
         return
     }
     
+    # Check if the account has already been released (cleanup already performed)
+    if ($accountPool[$username].AssignedTo -eq $null -and $accountPool[$username].IsInUse -eq $false) {
+        Write-Host "Account $username has already been cleaned up and released."
+        Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
+            StatusCode = [HttpStatusCode]::OK
+            Body = @{
+                message = "Account already cleaned up and released."
+                username = $username
+                deploymentName = $deploymentName
+            } | ConvertTo-Json
+        })
+        return
+    }
+    
     # Get the resource group associated with this account
     $resourceGroup = $accountPool[$username].ResourceGroup
     

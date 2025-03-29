@@ -2,52 +2,46 @@ using namespace System.Net
 
 param($Request, $TriggerMetadata)
 
-# Function to get account pool from Key Vault
-function Get-AccountPool {
-    [CmdletBinding()]
-    param()
-    
-    try {
-        $keyVaultName = $env:KeyVaultName
-        $secretName = $env:AccountPoolSecretName
-        
-        $secret = Get-AzKeyVaultSecret -VaultName $keyVaultName -Name $secretName -ErrorAction Stop
-        $poolJson = $secret.SecretValue | ConvertFrom-SecureString -AsPlainText
-        $pool = $poolJson | ConvertFrom-Json -AsHashtable
-        
-        Write-Host "Successfully loaded account pool with $($pool.Count) accounts"
-        return $pool
-    }
-    catch {
-        Write-Error "Error loading account pool from Key Vault: $_"
-        throw
-    }
-}
-
-# Function to save account pool to Key Vault
-function Save-AccountPool {
+# Function for structured logging
+function Write-DetailedLog {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory=$true)]
-        [hashtable]$Pool
+        [string]$Message,
+        
+        [Parameter(Mandatory=$false)]
+        [ValidateSet("INFO", "WARNING", "ERROR", "DEBUG")]
+        [string]$Level = "INFO",
+        
+        [Parameter(Mandatory=$false)]
+        [hashtable]$Data
     )
     
-    try {
-        $keyVaultName = $env:KeyVaultName
-        $secretName = $env:AccountPoolSecretName
-        
-        $poolJson = $Pool | ConvertTo-Json -Compress
-        $securePoolJson = ConvertTo-SecureString -String $poolJson -AsPlainText -Force
-        Set-AzKeyVaultSecret -VaultName $keyVaultName -Name $secretName -SecretValue $securePoolJson -ErrorAction Stop
-        Write-Host "Successfully saved account pool to Key Vault"
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
+    $logEntry = @{
+        timestamp = $timestamp
+        level = $Level
+        message = $Message
+        functionName = $TriggerMetadata.FunctionName
+        invocationId = $TriggerMetadata.InvocationId
     }
-    catch {
-        Write-Error "Error saving account pool to Key Vault: $_"
-        throw
+    
+    if ($Data) {
+        $logEntry.data = $Data
+    }
+    
+    $logJson = ConvertTo-Json -InputObject $logEntry -Depth 5 -Compress
+    
+    # Use different console methods based on level for better visibility in App Insights
+    switch ($Level) {
+        "ERROR" { Write-Error $logJson }
+        "WARNING" { Write-Warning $logJson }
+        "DEBUG" { Write-Verbose $logJson }
+        default { Write-Host $logJson }
     }
 }
 
-# Function to release an account back to the pool
+# Function to release an account back to the pool (using Table Storage)
 function Release-AccountToPool {
     [CmdletBinding()]
     param (
@@ -55,161 +49,314 @@ function Release-AccountToPool {
         [string]$Username,
         
         [Parameter(Mandatory=$true)]
-        [hashtable]$Pool
+        [Microsoft.Azure.Cosmos.Table.CloudTable]$Table,
+        
+        [Parameter(Mandatory=$true)]
+        [string]$DeploymentId
     )
     
-    if (-not $Pool.ContainsKey($Username)) {
-        Write-Warning "Account $Username not found in the pool"
-        return $false
+    # Find the account in the table
+    Write-DetailedLog -Message "Finding account in table storage" -Level "DEBUG" -Data @{
+        username = $Username
+        deploymentId = $DeploymentId
     }
     
-    # Release the account back to the pool
-    $Pool[$Username].IsInUse = $false
-    $Pool[$Username].AssignedTo = $null
+    # First check for account by deployment ID
+    $filter = "AssignedTo eq '$DeploymentId'"
+    $accounts = Get-AzTableRow -Table $Table -CustomFilter $filter
     
-    Write-Host "Released account $Username back to the pool"
-    return $true
+    # If not found by deployment ID, try by username
+    if (-not $accounts -or $accounts.Count -eq 0) {
+        Write-DetailedLog -Message "Account not found by DeploymentId, trying username" -Level "WARNING" -Data @{
+            deploymentId = $DeploymentId
+        }
+        
+        $filter = "Username eq '$Username'"
+        $accounts = Get-AzTableRow -Table $Table -CustomFilter $filter
+    }
+    
+    if (-not $accounts -or $accounts.Count -eq 0) {
+        Write-DetailedLog -Message "Account not found in table storage" -Level "ERROR" -Data @{
+            username = $Username
+            deploymentId = $DeploymentId
+        }
+        return $null
+    }
+    
+    $account = $accounts[0]
+    
+    # Release the account back to the pool
+    $account.IsInUse = "false"  # Use string "false" instead of boolean for compatibility
+    $account.AssignedTo = ""    # Use empty string instead of null
+    # Update LastUsed instead of non-existent LastReleased property
+    $account.LastUsed = [DateTime]::UtcNow.ToString("o")
+    
+    # Update the account in table storage
+    Write-DetailedLog -Message "Updating account in table storage" -Level "DEBUG" -Data @{
+        username = $Username
+        resourceGroup = $account.ResourceGroup
+    }
+    
+    try {
+        $result = Update-AzTableRow -Table $Table -Entity $account
+        Write-DetailedLog -Message "Update result" -Level "DEBUG" -Data @{
+            result = $result
+        }
+    }
+    catch {
+        Write-DetailedLog -Message "Error updating table row" -Level "ERROR" -Data @{
+            error = $_.Exception.Message
+            errorDetails = $_.Exception.ToString()
+        }
+        throw
+    }
+    
+    Write-DetailedLog -Message "Account released back to pool" -Level "INFO" -Data @{
+        username = $Username
+        resourceGroup = $account.ResourceGroup
+    }
+    
+    return $account
 }
 
 # Parse request body
-$deploymentName = $Request.Body.deploymentName
-$username = $Request.Body.username
-
-if (-not $deploymentName -or -not $username) {
-    Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
-        StatusCode = [HttpStatusCode]::BadRequest
-        Body = "Please pass deploymentName and username in the request body."
-    })
-    return
-}
-
 try {
-    # Authenticate with Azure (using Managed Identity)
-    Connect-AzAccount -Identity
+    Write-DetailedLog -Message "Cleanup function started" -Data @{
+        requestMethod = $Request.Method
+        requestUrl = $Request.Url.ToString()
+    }
     
-    # Get account pool
-    $accountPool = Get-AccountPool
+    # Initialize request data
+    $requestData = @{}
     
-    # Validate the account exists in the pool
-    if (-not $accountPool.ContainsKey($username)) {
+    # Parse request body
+    if ($Request.Body -is [System.Collections.IDictionary] -or $Request.Body -is [PSCustomObject]) {
+        $requestData = $Request.Body
+    }
+    elseif ($Request.Body -is [string] -and $Request.Body.Trim().StartsWith('{')) {
+        $requestData = $Request.Body | ConvertFrom-Json -AsHashtable
+    }
+    elseif ($Request.Body -is [System.IO.Stream]) {
+        $reader = New-Object System.IO.StreamReader($Request.Body)
+        $bodyContent = $reader.ReadToEnd()
+        if ($bodyContent.Trim().StartsWith('{')) {
+            $requestData = $bodyContent | ConvertFrom-Json -AsHashtable
+        }
+    }
+    
+    # Extract required parameters
+    $deploymentName = $requestData.deploymentName
+    $username = $requestData.username
+    
+    Write-DetailedLog -Message "Request data parsed" -Level "DEBUG" -Data @{
+        username = $username
+        deploymentName = $deploymentName
+    }
+    
+    if (-not $deploymentName -and -not $username) {
+        Write-DetailedLog -Message "Missing required parameters" -Level "ERROR" -Data @{
+            providedParams = if ($requestData.Keys.Count -gt 0) { $requestData.Keys -join ", " } else { "none" }
+        }
+        
         Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
             StatusCode = [HttpStatusCode]::BadRequest
-            Body = @{
-                error = "Account not found in pool."
-            } | ConvertTo-Json
+            Headers = @{ "Content-Type" = "application/json" }
+            Body = ConvertTo-Json @{
+                error = "Please pass deploymentName and/or username in the request body."
+            }
         })
         return
     }
     
-    # Check if the account has already been released (cleanup already performed)
-    if ($accountPool[$username].AssignedTo -eq $null -and $accountPool[$username].IsInUse -eq $false) {
-        Write-Host "Account $username has already been cleaned up and released."
+    # Authenticate with Azure (using Managed Identity)
+    Write-DetailedLog -Message "Connecting to Azure..." -Level "DEBUG"
+    Connect-AzAccount -Identity
+    
+    # Check if AzTable module is available
+    if (-not (Get-Module -Name AzTable -ListAvailable)) {
+        Write-DetailedLog -Message "AzTable module not found. Loading from custom path..." -Level "WARNING"
+        $modulesPath = "D:\home\site\wwwroot\modules"
+        if (Test-Path -Path "$modulesPath\AzTable") {
+            Import-Module "$modulesPath\AzTable"
+            Write-DetailedLog -Message "AzTable module loaded from custom path" -Level "DEBUG"
+        } else {
+            Write-DetailedLog -Message "AzTable module not found" -Level "ERROR"
+            throw "AzTable module not found. Please make sure it's installed in the Function App."
+        }
+    } else {
+        Import-Module AzTable
+        Write-DetailedLog -Message "AzTable module loaded" -Level "DEBUG"
+    }
+    
+    # Get a reference to the Azure Table
+    Write-DetailedLog -Message "Connecting to Table Storage..." -Level "DEBUG"
+    $storageAccountName = $env:StorageAccountName
+    $storageAccountKey = $env:StorageAccountKey
+    $ctx = New-AzStorageContext -StorageAccountName $storageAccountName -StorageAccountKey $storageAccountKey
+    $table = (Get-AzStorageTable -Name "LabAccounts" -Context $ctx).CloudTable
+    
+    # Check if table exists
+    if (-not $table) {
+        Write-DetailedLog -Message "LabAccounts table not found" -Level "ERROR" -Data @{
+            storageAccount = $storageAccountName
+        }
+        
         Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
-            StatusCode = [HttpStatusCode]::OK
-            Body = @{
-                message = "Account already cleaned up and released."
-                username = $username
-                deploymentName = $deploymentName
-            } | ConvertTo-Json
+            StatusCode = [HttpStatusCode]::InternalServerError
+            Headers = @{ "Content-Type" = "application/json" }
+            Body = ConvertTo-Json @{
+                error = "LabAccounts table does not exist in storage account $storageAccountName"
+            }
+        })
+        return
+    }
+    
+    # Find and release the account
+    $account = Release-AccountToPool -Username $username -Table $table -DeploymentId $deploymentName
+    
+    if (-not $account) {
+        Write-DetailedLog -Message "Account not found" -Level "ERROR" -Data @{
+            username = $username
+            deploymentName = $deploymentName
+        }
+        
+        Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
+            StatusCode = [HttpStatusCode]::BadRequest
+            Headers = @{ "Content-Type" = "application/json" }
+            Body = ConvertTo-Json @{
+                error = "Account not found. Please check username and/or deploymentName."
+            }
         })
         return
     }
     
     # Get the resource group associated with this account
-    $resourceGroup = $accountPool[$username].ResourceGroup
+    $resourceGroup = $account.ResourceGroup
     
     if (-not $resourceGroup) {
+        Write-DetailedLog -Message "No resource group associated with this account" -Level "WARNING" -Data @{
+            username = $username
+        }
+        
         Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
-            StatusCode = [HttpStatusCode]::BadRequest
-            Body = @{
-                error = "No resource group associated with this account."
-            } | ConvertTo-Json
+            StatusCode = [HttpStatusCode]::OK
+            Headers = @{ "Content-Type" = "application/json" }
+            Body = ConvertTo-Json @{
+                message = "Account released, but no resource group found to clean up."
+                username = $username
+                deploymentName = $deploymentName
+            }
         })
         return
     }
     
-    # Delete and recreate the resource group, then reapply permissions
+    # Delete and recreate the resource group
     try {
         # Get the resource group's location before deleting it
-        $resourceGroupInfo = Get-AzResourceGroup -Name $resourceGroup
-        $location = $resourceGroupInfo.Location
+        $resourceGroupInfo = Get-AzResourceGroup -Name $resourceGroup -ErrorAction SilentlyContinue
         
-        Write-Host "Deleting resource group $resourceGroup"
-        Remove-AzResourceGroup -Name $resourceGroup -Force
-        
-        # Recreate the empty resource group
-        Write-Host "Recreating resource group $resourceGroup in $location"
-        New-AzResourceGroup -Name $resourceGroup -Location $location
-        
-        # Reapply permissions to the function app's managed identity
-        try {
-            # Get the function app's managed identity object ID
-            $functionAppName = $env:WEBSITE_SITE_NAME # Gets the current function app's name
-            $functionAppResourceGroup = $env:WEBSITE_RESOURCE_GROUP # Gets the function app's resource group
+        if ($resourceGroupInfo) {
+            $location = $resourceGroupInfo.Location
             
-            # Get the function app to find its managed identity
-            $functionApp = Get-AzWebApp -Name $functionAppName -ResourceGroupName $functionAppResourceGroup
-            $managedIdentityObjectId = $functionApp.Identity.PrincipalId
+            Write-DetailedLog -Message "Deleting resource group" -Level "INFO" -Data @{
+                resourceGroup = $resourceGroup
+            }
             
-            if ($managedIdentityObjectId) {
-                # Assign User Access Administrator role to the function app's managed identity
-                Write-Host "Assigning User Access Administrator role to function app's managed identity"
-                New-AzRoleAssignment -ObjectId $managedIdentityObjectId `
-                                    -RoleDefinitionName "User Access Administrator" `
-                                    -ResourceGroupName $resourceGroup
+            Remove-AzResourceGroup -Name $resourceGroup -Force -ErrorAction SilentlyContinue
+            
+            # Recreate the empty resource group
+            Write-DetailedLog -Message "Recreating resource group" -Level "INFO" -Data @{
+                resourceGroup = $resourceGroup
+                location = $location
+            }
+            
+            New-AzResourceGroup -Name $resourceGroup -Location $location -ErrorAction SilentlyContinue
+            
+            # Reapply permissions to the function app's managed identity
+            try {
+                # Get the function app's managed identity object ID
+                $functionAppName = $env:WEBSITE_SITE_NAME # Gets the current function app's name
+                $functionAppResourceGroup = $env:WEBSITE_RESOURCE_GROUP # Gets the function app's resource group
                 
-                Write-Host "Permissions reapplied to resource group $resourceGroup"
+                # Get the function app to find its managed identity
+                $functionApp = Get-AzWebApp -Name $functionAppName -ResourceGroupName $functionAppResourceGroup
+                $managedIdentityObjectId = $functionApp.Identity.PrincipalId
+                
+                if ($managedIdentityObjectId) {
+                    # Assign User Access Administrator role to the function app's managed identity
+                    Write-DetailedLog -Message "Assigning User Access Administrator role to function app's managed identity" -Level "DEBUG" -Data @{
+                        functionApp = $functionAppName
+                        resourceGroup = $resourceGroup
+                    }
+                    
+                    New-AzRoleAssignment -ObjectId $managedIdentityObjectId `
+                                        -RoleDefinitionName "User Access Administrator" `
+                                        -ResourceGroupName $resourceGroup -ErrorAction SilentlyContinue
+                    
+                    Write-DetailedLog -Message "Permissions reapplied to resource group" -Level "DEBUG" -Data @{
+                        resourceGroup = $resourceGroup
+                    }
+                }
+                else {
+                    Write-DetailedLog -Message "Could not determine function app's managed identity" -Level "WARNING"
+                }
             }
-            else {
-                Write-Warning "Could not determine function app's managed identity"
+            catch {
+                Write-DetailedLog -Message "Failed to reapply permissions to resource group" -Level "WARNING" -Data @{
+                    error = $_.Exception.Message
+                }
+                # Continue execution - permissions can be reapplied manually if needed
+            }
+            
+            Write-DetailedLog -Message "Resource group has been reset" -Level "INFO" -Data @{
+                resourceGroup = $resourceGroup
             }
         }
-        catch {
-            Write-Warning "Failed to reapply permissions to resource group: $_"
-            # Continue execution - permissions can be reapplied manually if needed
+        else {
+            Write-DetailedLog -Message "Resource group not found, no cleanup needed" -Level "INFO" -Data @{
+                resourceGroup = $resourceGroup
+            }
         }
-        
-        Write-Host "Resource group $resourceGroup has been reset"
     }
     catch {
-        Write-Warning "Failed to reset resource group: $_"
+        Write-DetailedLog -Message "Failed to reset resource group" -Level "WARNING" -Data @{
+            resourceGroup = $resourceGroup
+            error = $_.Exception.Message
+        }
         # Continue execution - incomplete cleanup shouldn't prevent account release
     }
     
-    # Release the account back to the pool
-    $success = Release-AccountToPool -Username $username -Pool $accountPool
-    
-    if (-not $success) {
-        Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
-            StatusCode = [HttpStatusCode]::BadRequest
-            Body = @{
-                error = "Failed to release account. Account not found in pool."
-            } | ConvertTo-Json
-        })
-        return
+    # Return success response
+    Write-DetailedLog -Message "Cleanup completed successfully" -Level "INFO" -Data @{
+        username = $username
+        deploymentName = $deploymentName
+        resourceGroup = $resourceGroup
     }
     
-    # Save the updated pool
-    Save-AccountPool -Pool $accountPool
-    
-    # Return success response
     Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
         StatusCode = [HttpStatusCode]::OK
-        Body = @{
+        Headers = @{ "Content-Type" = "application/json" }
+        Body = ConvertTo-Json @{
             message = "Lab environment cleaned up successfully."
             username = $username
             deploymentName = $deploymentName
             resourceGroup = $resourceGroup
-        } | ConvertTo-Json
+        }
     })
 }
 catch {
+    Write-DetailedLog -Message "Cleanup function failed" -Level "ERROR" -Data @{
+        error = $_.Exception.Message
+        stackTrace = $_.ScriptStackTrace
+    }
+    
     # Return error response
     Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
         StatusCode = [HttpStatusCode]::InternalServerError
-        Body = @{
+        Headers = @{ "Content-Type" = "application/json" }
+        Body = ConvertTo-Json @{
             error = "Failed to process cleanup."
             details = $_.Exception.Message
-        } | ConvertTo-Json
+        }
     })
 }
