@@ -79,7 +79,7 @@ resource vnetPeeringHubToSpoke1 'Microsoft.Network/virtualNetworks/virtualNetwor
     remoteVirtualNetwork: {
       id: vnetSpoke1.id
     }
-    allowForwardedTraffic: true // Enable forwarded traffic
+    allowForwardedTraffic: false // Learners will configure this
     allowGatewayTransit: false // Learners will configure this
   }
 }
@@ -92,7 +92,7 @@ resource vnetPeeringSpoke1ToHub 'Microsoft.Network/virtualNetworks/virtualNetwor
     remoteVirtualNetwork: {
       id: vnetHub.id
     }
-    allowForwardedTraffic: true // Enable forwarded traffic
+    allowForwardedTraffic: false // Learners will configure this
     useRemoteGateways: false // Learners will configure this
   }
 }
@@ -105,7 +105,7 @@ resource vnetPeeringHubToSpoke2 'Microsoft.Network/virtualNetworks/virtualNetwor
     remoteVirtualNetwork: {
       id: vnetSpoke2.id
     }
-    allowForwardedTraffic: true // Enable forwarded traffic
+    allowForwardedTraffic: false // Learners will configure this
     allowGatewayTransit: false // Learners will configure this
   }
 }
@@ -118,7 +118,7 @@ resource vnetPeeringSpoke2ToHub 'Microsoft.Network/virtualNetworks/virtualNetwor
     remoteVirtualNetwork: {
       id: vnetHub.id
     }
-    allowForwardedTraffic: true // Enable forwarded traffic
+    allowForwardedTraffic: false // Learners will configure this
     useRemoteGateways: false // Learners will configure this
   }
 }
