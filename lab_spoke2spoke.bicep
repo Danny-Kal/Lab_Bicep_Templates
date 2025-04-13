@@ -152,7 +152,9 @@ resource azureFirewall 'Microsoft.Network/azureFirewalls@2023-02-01' = {
           rules: [
             {
               name: 'AllowVN01ToVN03'
-              protocol: 'Any'
+              protocols: [
+                'Any'
+              ]
               sourceAddresses: [
                 '10.1.0.0/16'
               ]
@@ -165,7 +167,9 @@ resource azureFirewall 'Microsoft.Network/azureFirewalls@2023-02-01' = {
             }
             {
               name: 'AllowVN03ToVN01'
-              protocol: 'Any'
+              protocols: [
+                'Any'
+              ]
               sourceAddresses: [
                 '10.3.0.0/16'
               ]

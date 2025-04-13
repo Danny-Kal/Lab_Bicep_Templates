@@ -1,0 +1,253 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.33.93.31351",
+      "templateHash": "6483646024120897305"
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "eastus"
+    },
+    "vnetAddressSpaceHub": {
+      "type": "string",
+      "defaultValue": "10.2.0.0/16"
+    },
+    "vnetAddressSpaceSpoke1": {
+      "type": "string",
+      "defaultValue": "10.1.0.0/16"
+    },
+    "vnetAddressSpaceSpoke2": {
+      "type": "string",
+      "defaultValue": "10.3.0.0/16"
+    },
+    "subnetHubName": {
+      "type": "string",
+      "defaultValue": "HubSubnet"
+    },
+    "subnetSpoke1Name": {
+      "type": "string",
+      "defaultValue": "Spoke1Subnet"
+    },
+    "subnetSpoke2Name": {
+      "type": "string",
+      "defaultValue": "Spoke2Subnet"
+    },
+    "subnetHubAddressPrefix": {
+      "type": "string",
+      "defaultValue": "10.2.0.0/24"
+    },
+    "subnetSpoke1AddressPrefix": {
+      "type": "string",
+      "defaultValue": "10.1.0.0/24"
+    },
+    "subnetSpoke2AddressPrefix": {
+      "type": "string",
+      "defaultValue": "10.3.0.0/24"
+    },
+    "azureFirewallName": {
+      "type": "string",
+      "defaultValue": "AzureFirewall"
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Network/virtualNetworks",
+      "apiVersion": "2023-02-01",
+      "name": "VN02",
+      "location": "[parameters('location')]",
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "[parameters('vnetAddressSpaceHub')]"
+          ]
+        },
+        "subnets": [
+          {
+            "name": "[parameters('subnetHubName')]",
+            "properties": {
+              "addressPrefix": "[parameters('subnetHubAddressPrefix')]"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/virtualNetworks",
+      "apiVersion": "2023-02-01",
+      "name": "VN01",
+      "location": "[parameters('location')]",
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "[parameters('vnetAddressSpaceSpoke1')]"
+          ]
+        },
+        "subnets": [
+          {
+            "name": "[parameters('subnetSpoke1Name')]",
+            "properties": {
+              "addressPrefix": "[parameters('subnetSpoke1AddressPrefix')]"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/virtualNetworks",
+      "apiVersion": "2023-02-01",
+      "name": "VN03",
+      "location": "[parameters('location')]",
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "[parameters('vnetAddressSpaceSpoke2')]"
+          ]
+        },
+        "subnets": [
+          {
+            "name": "[parameters('subnetSpoke2Name')]",
+            "properties": {
+              "addressPrefix": "[parameters('subnetSpoke2AddressPrefix')]"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/virtualNetworks/virtualNetworkPeerings",
+      "apiVersion": "2023-02-01",
+      "name": "[format('{0}/{1}', 'VN02', format('{0}-to-{1}', 'VN02', 'VN01'))]",
+      "properties": {
+        "remoteVirtualNetwork": {
+          "id": "[resourceId('Microsoft.Network/virtualNetworks', 'VN01')]"
+        },
+        "allowForwardedTraffic": true,
+        "allowGatewayTransit": false
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', 'VN02')]",
+        "[resourceId('Microsoft.Network/virtualNetworks', 'VN01')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Network/virtualNetworks/virtualNetworkPeerings",
+      "apiVersion": "2023-02-01",
+      "name": "[format('{0}/{1}', 'VN01', format('{0}-to-{1}', 'VN01', 'VN02'))]",
+      "properties": {
+        "remoteVirtualNetwork": {
+          "id": "[resourceId('Microsoft.Network/virtualNetworks', 'VN02')]"
+        },
+        "allowForwardedTraffic": true,
+        "useRemoteGateways": false
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', 'VN02')]",
+        "[resourceId('Microsoft.Network/virtualNetworks', 'VN01')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Network/virtualNetworks/virtualNetworkPeerings",
+      "apiVersion": "2023-02-01",
+      "name": "[format('{0}/{1}', 'VN02', format('{0}-to-{1}', 'VN02', 'VN03'))]",
+      "properties": {
+        "remoteVirtualNetwork": {
+          "id": "[resourceId('Microsoft.Network/virtualNetworks', 'VN03')]"
+        },
+        "allowForwardedTraffic": true,
+        "allowGatewayTransit": false
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', 'VN02')]",
+        "[resourceId('Microsoft.Network/virtualNetworks', 'VN03')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Network/virtualNetworks/virtualNetworkPeerings",
+      "apiVersion": "2023-02-01",
+      "name": "[format('{0}/{1}', 'VN03', format('{0}-to-{1}', 'VN03', 'VN02'))]",
+      "properties": {
+        "remoteVirtualNetwork": {
+          "id": "[resourceId('Microsoft.Network/virtualNetworks', 'VN02')]"
+        },
+        "allowForwardedTraffic": true,
+        "useRemoteGateways": false
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', 'VN02')]",
+        "[resourceId('Microsoft.Network/virtualNetworks', 'VN03')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Network/azureFirewalls",
+      "apiVersion": "2023-02-01",
+      "name": "[parameters('azureFirewallName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "sku": {
+          "tier": "Standard"
+        },
+        "ipConfigurations": [
+          {
+            "name": "FirewallIpConfig",
+            "properties": {
+              "subnet": {
+                "id": "[format('{0}/subnets/{1}', resourceId('Microsoft.Network/virtualNetworks', 'VN02'), parameters('subnetHubName'))]"
+              }
+            }
+          }
+        ],
+        "networkRuleCollections": [
+          {
+            "name": "SpokeCommunication",
+            "properties": {
+              "priority": 100,
+              "action": {
+                "type": "Allow"
+              },
+              "rules": [
+                {
+                  "name": "AllowVN01ToVN03",
+                  "protocols": [
+                    "Any"
+                  ],
+                  "sourceAddresses": [
+                    "10.1.0.0/16"
+                  ],
+                  "destinationAddresses": [
+                    "10.3.0.0/16"
+                  ],
+                  "destinationPorts": [
+                    "*"
+                  ]
+                },
+                {
+                  "name": "AllowVN03ToVN01",
+                  "protocols": [
+                    "Any"
+                  ],
+                  "sourceAddresses": [
+                    "10.3.0.0/16"
+                  ],
+                  "destinationAddresses": [
+                    "10.1.0.0/16"
+                  ],
+                  "destinationPorts": [
+                    "*"
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', 'VN02')]"
+      ]
+    }
+  ]
+}
