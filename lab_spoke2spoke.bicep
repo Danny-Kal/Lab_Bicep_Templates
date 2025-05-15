@@ -1,16 +1,40 @@
-// Parameters
-param location string = 'eastus' // Change to your preferred region
-param vnetAddressSpaceHub string = '10.2.0.0/16'
-param vnetAddressSpaceSpoke1 string = '10.1.0.0/16'
-param vnetAddressSpaceSpoke2 string = '10.3.0.0/16'
-param subnetHubName string = 'HubSubnet'
-param subnetSpoke1Name string = 'Spoke1Subnet'
-param subnetSpoke2Name string = 'Spoke2Subnet'
-param subnetHubAddressPrefix string = '10.2.0.0/24'
-param subnetSpoke1AddressPrefix string = '10.1.0.0/24'
-param subnetSpoke2AddressPrefix string = '10.3.0.0/24'
-param azureFirewallName string = 'AzureFirewall'
+@description('Location for all resources.')
+param location string = 'eastus'
 
+@description('Address space for the hub VNet.')
+param vnetAddressSpaceHub string = '10.2.0.0/16'
+
+@description('Address space for the first spoke VNet.')
+param vnetAddressSpaceSpoke1 string = '10.1.0.0/16'
+
+@description('Address space for the second spoke VNet.')
+param vnetAddressSpaceSpoke2 string = '10.3.0.0/16'
+
+@description('Name for the hub subnet.')
+param subnetHubName string = 'HubSubnet'
+
+@description('Name for the first spoke subnet.')
+param subnetSpoke1Name string = 'Spoke1Subnet'
+
+@description('Name for the second spoke subnet.')
+param subnetSpoke2Name string = 'Spoke2Subnet'
+
+@description('Address prefix for the hub subnet.')
+param subnetHubAddressPrefix string = '10.2.0.0/24'
+
+@description('Address prefix for the first spoke subnet.')
+param subnetSpoke1AddressPrefix string = '10.1.0.0/24'
+
+@description('Address prefix for the second spoke subnet.')
+param subnetSpoke2AddressPrefix string = '10.3.0.0/24'
+
+@description('Address prefix for the RouteServerSubnet. Must be at least a /27.')
+param routeServerSubnetPrefix string = '10.2.1.0/27'
+
+@description('Name for the Route Server.')
+param routeServerName string = 'HubRouteServer'
+
+// Hub Virtual Network (VN02)
 resource vnetHub 'Microsoft.Network/virtualNetworks@2023-02-01' = {
   name: 'VN02'
   location: location
@@ -27,10 +51,17 @@ resource vnetHub 'Microsoft.Network/virtualNetworks@2023-02-01' = {
           addressPrefix: subnetHubAddressPrefix
         }
       }
+      {
+        name: 'RouteServerSubnet'
+        properties: {
+          addressPrefix: routeServerSubnetPrefix
+        }
+      }
     ]
   }
 }
 
+// First Spoke Virtual Network (VN01)
 resource vnetSpoke1 'Microsoft.Network/virtualNetworks@2023-02-01' = {
   name: 'VN01'
   location: location
@@ -51,6 +82,7 @@ resource vnetSpoke1 'Microsoft.Network/virtualNetworks@2023-02-01' = {
   }
 }
 
+// Second Spoke Virtual Network (VN03)
 resource vnetSpoke2 'Microsoft.Network/virtualNetworks@2023-02-01' = {
   name: 'VN03'
   location: location
@@ -71,116 +103,86 @@ resource vnetSpoke2 'Microsoft.Network/virtualNetworks@2023-02-01' = {
   }
 }
 
-// VNet Peering: Hub -> Spoke 1
-resource vnetPeeringHubToSpoke1 'Microsoft.Network/virtualNetworks/virtualNetworkPeerings@2023-02-01' = {
-  name: '${vnetHub.name}-to-${vnetSpoke1.name}'
+// Peering from Hub to First Spoke
+resource hubToSpoke1Peering 'Microsoft.Network/virtualNetworks/virtualNetworkPeerings@2023-02-01' = {
   parent: vnetHub
+  name: '${vnetHub.name}-to-${vnetSpoke1.name}'
   properties: {
     remoteVirtualNetwork: {
       id: vnetSpoke1.id
     }
-    allowForwardedTraffic: false // Learners will configure this
-    allowGatewayTransit: false // Learners will configure this
+    allowForwardedTraffic: true
+    allowGatewayTransit: false
   }
 }
 
-// VNet Peering: Spoke 1 -> Hub
-resource vnetPeeringSpoke1ToHub 'Microsoft.Network/virtualNetworks/virtualNetworkPeerings@2023-02-01' = {
-  name: '${vnetSpoke1.name}-to-${vnetHub.name}'
+// Peering from First Spoke to Hub
+resource spoke1ToHubPeering 'Microsoft.Network/virtualNetworks/virtualNetworkPeerings@2023-02-01' = {
   parent: vnetSpoke1
+  name: '${vnetSpoke1.name}-to-${vnetHub.name}'
   properties: {
     remoteVirtualNetwork: {
       id: vnetHub.id
     }
-    allowForwardedTraffic: false // Learners will configure this
-    useRemoteGateways: false // Learners will configure this
+    allowForwardedTraffic: true
+    useRemoteGateways: false
   }
 }
 
-// VNet Peering: Hub -> Spoke 2
-resource vnetPeeringHubToSpoke2 'Microsoft.Network/virtualNetworks/virtualNetworkPeerings@2023-02-01' = {
-  name: '${vnetHub.name}-to-${vnetSpoke2.name}'
+// Peering from Hub to Second Spoke
+resource hubToSpoke2Peering 'Microsoft.Network/virtualNetworks/virtualNetworkPeerings@2023-02-01' = {
   parent: vnetHub
+  name: '${vnetHub.name}-to-${vnetSpoke2.name}'
   properties: {
     remoteVirtualNetwork: {
       id: vnetSpoke2.id
     }
-    allowForwardedTraffic: false // Learners will configure this
-    allowGatewayTransit: false // Learners will configure this
+    allowForwardedTraffic: true
+    allowGatewayTransit: false
   }
 }
 
-// VNet Peering: Spoke 2 -> Hub
-resource vnetPeeringSpoke2ToHub 'Microsoft.Network/virtualNetworks/virtualNetworkPeerings@2023-02-01' = {
-  name: '${vnetSpoke2.name}-to-${vnetHub.name}'
+// Peering from Second Spoke to Hub
+resource spoke2ToHubPeering 'Microsoft.Network/virtualNetworks/virtualNetworkPeerings@2023-02-01' = {
   parent: vnetSpoke2
+  name: '${vnetSpoke2.name}-to-${vnetHub.name}'
   properties: {
     remoteVirtualNetwork: {
       id: vnetHub.id
     }
-    allowForwardedTraffic: false // Learners will configure this
-    useRemoteGateways: false // Learners will configure this
+    allowForwardedTraffic: true
+    useRemoteGateways: false
   }
 }
 
-// Azure Firewall Deployment with Preconfigured Rules
-resource azureFirewall 'Microsoft.Network/azureFirewalls@2023-02-01' = {
-  name: azureFirewallName
+// Public IP for Route Server
+resource routeServerPublicIP 'Microsoft.Network/publicIPAddresses@2023-02-01' = {
+  name: 'RouteServerPublicIP'
+  location: location
+  sku: {
+    name: 'Standard'
+  }
+  properties: {
+    publicIPAllocationMethod: 'Static'
+  }
+}
+
+// Route Server
+resource routeServer 'Microsoft.Network/routeServers@2022-07-01' = {
+  name: routeServerName
   location: location
   properties: {
-    sku: {
-      tier: 'Standard'
-    }
+    routerConfiguration: {}
     ipConfigurations: [
       {
-        name: 'FirewallIpConfig'
+        name: 'ipconfig1'
         properties: {
           subnet: {
-            id: '${vnetHub.id}/subnets/${subnetHubName}'
+            id: '${vnetHub.id}/subnets/RouteServerSubnet'
           }
-        }
-      }
-    ]
-    networkRuleCollections: [
-      {
-        name: 'SpokeCommunication'
-        properties: {
-          priority: 100
-          action: {
-            type: 'Allow'
+          publicIPAddress: {
+            id: routeServerPublicIP.id
           }
-          rules: [
-            {
-              name: 'AllowVN01ToVN03'
-              protocols: [
-                'Any'
-              ]
-              sourceAddresses: [
-                '10.1.0.0/16'
-              ]
-              destinationAddresses: [
-                '10.3.0.0/16'
-              ]
-              destinationPorts: [
-                '*'
-              ]
-            }
-            {
-              name: 'AllowVN03ToVN01'
-              protocols: [
-                'Any'
-              ]
-              sourceAddresses: [
-                '10.3.0.0/16'
-              ]
-              destinationAddresses: [
-                '10.1.0.0/16'
-              ]
-              destinationPorts: [
-                '*'
-              ]
-            }
-          ]
         }
       }
     ]

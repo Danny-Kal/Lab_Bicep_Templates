@@ -5,57 +5,93 @@
     "_generator": {
       "name": "bicep",
       "version": "0.33.93.31351",
-      "templateHash": "6483646024120897305"
+      "templateHash": "14236105035987761844"
     }
   },
   "parameters": {
     "location": {
       "type": "string",
-      "defaultValue": "eastus"
+      "defaultValue": "eastus",
+      "metadata": {
+        "description": "Location for all resources."
+      }
     },
     "vnetAddressSpaceHub": {
       "type": "string",
-      "defaultValue": "10.2.0.0/16"
+      "defaultValue": "10.2.0.0/16",
+      "metadata": {
+        "description": "Address space for the hub VNet."
+      }
     },
     "vnetAddressSpaceSpoke1": {
       "type": "string",
-      "defaultValue": "10.1.0.0/16"
+      "defaultValue": "10.1.0.0/16",
+      "metadata": {
+        "description": "Address space for the first spoke VNet."
+      }
     },
     "vnetAddressSpaceSpoke2": {
       "type": "string",
-      "defaultValue": "10.3.0.0/16"
+      "defaultValue": "10.3.0.0/16",
+      "metadata": {
+        "description": "Address space for the second spoke VNet."
+      }
     },
     "subnetHubName": {
       "type": "string",
-      "defaultValue": "HubSubnet"
+      "defaultValue": "HubSubnet",
+      "metadata": {
+        "description": "Name for the hub subnet."
+      }
     },
     "subnetSpoke1Name": {
       "type": "string",
-      "defaultValue": "Spoke1Subnet"
+      "defaultValue": "Spoke1Subnet",
+      "metadata": {
+        "description": "Name for the first spoke subnet."
+      }
     },
     "subnetSpoke2Name": {
       "type": "string",
-      "defaultValue": "Spoke2Subnet"
+      "defaultValue": "Spoke2Subnet",
+      "metadata": {
+        "description": "Name for the second spoke subnet."
+      }
     },
     "subnetHubAddressPrefix": {
       "type": "string",
-      "defaultValue": "10.2.0.0/24"
+      "defaultValue": "10.2.0.0/24",
+      "metadata": {
+        "description": "Address prefix for the hub subnet."
+      }
     },
     "subnetSpoke1AddressPrefix": {
       "type": "string",
-      "defaultValue": "10.1.0.0/24"
+      "defaultValue": "10.1.0.0/24",
+      "metadata": {
+        "description": "Address prefix for the first spoke subnet."
+      }
     },
     "subnetSpoke2AddressPrefix": {
       "type": "string",
-      "defaultValue": "10.3.0.0/24"
+      "defaultValue": "10.3.0.0/24",
+      "metadata": {
+        "description": "Address prefix for the second spoke subnet."
+      }
     },
-    "azureFirewallName": {
+    "routeServerSubnetPrefix": {
       "type": "string",
-      "defaultValue": "AzureFirewall"
+      "defaultValue": "10.2.1.0/27",
+      "metadata": {
+        "description": "Address prefix for the RouteServerSubnet. Must be at least a /27."
+      }
     },
-    "firewallPublicIPName": {
+    "routeServerName": {
       "type": "string",
-      "defaultValue": "FirewallPublicIP"
+      "defaultValue": "HubRouteServer",
+      "metadata": {
+        "description": "Name for the Route Server."
+      }
     }
   },
   "resources": [
@@ -78,9 +114,9 @@
             }
           },
           {
-            "name": "AzureFirewallSubnet",
+            "name": "RouteServerSubnet",
             "properties": {
-              "addressPrefix": "10.2.1.0/24"
+              "addressPrefix": "[parameters('routeServerSubnetPrefix')]"
             }
           }
         ]
@@ -195,85 +231,39 @@
     {
       "type": "Microsoft.Network/publicIPAddresses",
       "apiVersion": "2023-02-01",
-      "name": "[parameters('firewallPublicIPName')]",
+      "name": "RouteServerPublicIP",
       "location": "[parameters('location')]",
       "sku": {
         "name": "Standard"
       },
       "properties": {
-        "publicIPAllocationMethod": "Static",
-        "publicIPAddressVersion": "IPv4"
+        "publicIPAllocationMethod": "Static"
       }
     },
     {
-      "type": "Microsoft.Network/azureFirewalls",
-      "apiVersion": "2023-02-01",
-      "name": "[parameters('azureFirewallName')]",
+      "type": "Microsoft.Network/routeServers",
+      "apiVersion": "2022-07-01",
+      "name": "[parameters('routeServerName')]",
       "location": "[parameters('location')]",
       "properties": {
-        "sku": {
-          "tier": "Standard"
-        },
+        "routerConfiguration": {},
         "ipConfigurations": [
           {
-            "name": "FirewallIpConfig",
+            "name": "ipconfig1",
             "properties": {
               "subnet": {
-                "id": "[format('{0}/subnets/{1}', resourceId('Microsoft.Network/virtualNetworks', 'VN02'), 'AzureFirewallSubnet')]"
+                "id": "[format('{0}/subnets/RouteServerSubnet', resourceId('Microsoft.Network/virtualNetworks', 'VN02'))]"
               },
               "publicIPAddress": {
-                "id": "[resourceId('Microsoft.Network/publicIPAddresses', parameters('firewallPublicIPName'))]"
+                "id": "[resourceId('Microsoft.Network/publicIPAddresses', 'RouteServerPublicIP')]"
               }
-            }
-          }
-        ],
-        "networkRuleCollections": [
-          {
-            "name": "SpokeCommunication",
-            "properties": {
-              "priority": 100,
-              "action": {
-                "type": "Allow"
-              },
-              "rules": [
-                {
-                  "name": "AllowVN01ToVN03",
-                  "protocols": [
-                    "Any"
-                  ],
-                  "sourceAddresses": [
-                    "10.1.0.0/16"
-                  ],
-                  "destinationAddresses": [
-                    "10.3.0.0/16"
-                  ],
-                  "destinationPorts": [
-                    "*"
-                  ]
-                },
-                {
-                  "name": "AllowVN03ToVN01",
-                  "protocols": [
-                    "Any"
-                  ],
-                  "sourceAddresses": [
-                    "10.3.0.0/16"
-                  ],
-                  "destinationAddresses": [
-                    "10.1.0.0/16"
-                  ],
-                  "destinationPorts": [
-                    "*"
-                  ]
-                }
-              ]
             }
           }
         ]
       },
       "dependsOn": [
-        "[resourceId('Microsoft.Network/virtualNetworks', 'VN02')]",
-        "[resourceId('Microsoft.Network/publicIPAddresses', parameters('firewallPublicIPName'))]"
+        "[resourceId('Microsoft.Network/publicIPAddresses', 'RouteServerPublicIP')]",
+        "[resourceId('Microsoft.Network/virtualNetworks', 'VN02')]"
       ]
     }
   ]
