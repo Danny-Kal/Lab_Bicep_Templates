@@ -52,6 +52,10 @@
     "azureFirewallName": {
       "type": "string",
       "defaultValue": "AzureFirewall"
+    },
+    "firewallPublicIPName": {
+      "type": "string",
+      "defaultValue": "FirewallPublicIP"
     }
   },
   "resources": [
@@ -71,6 +75,12 @@
             "name": "[parameters('subnetHubName')]",
             "properties": {
               "addressPrefix": "[parameters('subnetHubAddressPrefix')]"
+            }
+          },
+          {
+            "name": "AzureFirewallSubnet",
+            "properties": {
+              "addressPrefix": "10.2.1.0/24"
             }
           }
         ]
@@ -183,6 +193,19 @@
       ]
     },
     {
+      "type": "Microsoft.Network/publicIPAddresses",
+      "apiVersion": "2023-02-01",
+      "name": "[parameters('firewallPublicIPName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Standard"
+      },
+      "properties": {
+        "publicIPAllocationMethod": "Static",
+        "publicIPAddressVersion": "IPv4"
+      }
+    },
+    {
       "type": "Microsoft.Network/azureFirewalls",
       "apiVersion": "2023-02-01",
       "name": "[parameters('azureFirewallName')]",
@@ -196,7 +219,10 @@
             "name": "FirewallIpConfig",
             "properties": {
               "subnet": {
-                "id": "[format('{0}/subnets/{1}', resourceId('Microsoft.Network/virtualNetworks', 'VN02'), parameters('subnetHubName'))]"
+                "id": "[format('{0}/subnets/{1}', resourceId('Microsoft.Network/virtualNetworks', 'VN02'), 'AzureFirewallSubnet')]"
+              },
+              "publicIPAddress": {
+                "id": "[resourceId('Microsoft.Network/publicIPAddresses', parameters('firewallPublicIPName'))]"
               }
             }
           }
@@ -246,7 +272,8 @@
         ]
       },
       "dependsOn": [
-        "[resourceId('Microsoft.Network/virtualNetworks', 'VN02')]"
+        "[resourceId('Microsoft.Network/virtualNetworks', 'VN02')]",
+        "[resourceId('Microsoft.Network/publicIPAddresses', parameters('firewallPublicIPName'))]"
       ]
     }
   ]
