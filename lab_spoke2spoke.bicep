@@ -28,11 +28,14 @@ param subnetSpoke1AddressPrefix string = '10.1.0.0/24'
 @description('Address prefix for the second spoke subnet.')
 param subnetSpoke2AddressPrefix string = '10.3.0.0/24'
 
-@description('Address prefix for the RouteServerSubnet. Must be at least a /27.')
-param routeServerSubnetPrefix string = '10.2.1.0/27'
+@description('Address prefix for the GatewaySubnet. Must be at least a /27.')
+param gatewaySubnetPrefix string = '10.2.1.0/27'
 
-@description('Name for the Route Server.')
-param routeServerName string = 'HubRouteServer'
+@description('Name for the Virtual Network Gateway.')
+param gatewayName string = 'HubVNetGateway'
+
+@description('The SKU of the Gateway. This must be either Basic, Standard or HighPerformance to work in a hub-spoke topology.')
+param gatewaySku string = 'VpnGw1'
 
 // Hub Virtual Network (VN02)
 resource vnetHub 'Microsoft.Network/virtualNetworks@2023-02-01' = {
@@ -52,9 +55,9 @@ resource vnetHub 'Microsoft.Network/virtualNetworks@2023-02-01' = {
         }
       }
       {
-        name: 'RouteServerSubnet'
+        name: 'GatewaySubnet' // This name is required for the gateway subnet
         properties: {
-          addressPrefix: routeServerSubnetPrefix
+          addressPrefix: gatewaySubnetPrefix
         }
       }
     ]
@@ -103,61 +106,9 @@ resource vnetSpoke2 'Microsoft.Network/virtualNetworks@2023-02-01' = {
   }
 }
 
-// Peering from Hub to First Spoke
-resource hubToSpoke1Peering 'Microsoft.Network/virtualNetworks/virtualNetworkPeerings@2023-02-01' = {
-  parent: vnetHub
-  name: '${vnetHub.name}-to-${vnetSpoke1.name}'
-  properties: {
-    remoteVirtualNetwork: {
-      id: vnetSpoke1.id
-    }
-    allowForwardedTraffic: true
-    allowGatewayTransit: false
-  }
-}
-
-// Peering from First Spoke to Hub
-resource spoke1ToHubPeering 'Microsoft.Network/virtualNetworks/virtualNetworkPeerings@2023-02-01' = {
-  parent: vnetSpoke1
-  name: '${vnetSpoke1.name}-to-${vnetHub.name}'
-  properties: {
-    remoteVirtualNetwork: {
-      id: vnetHub.id
-    }
-    allowForwardedTraffic: true
-    useRemoteGateways: false
-  }
-}
-
-// Peering from Hub to Second Spoke
-resource hubToSpoke2Peering 'Microsoft.Network/virtualNetworks/virtualNetworkPeerings@2023-02-01' = {
-  parent: vnetHub
-  name: '${vnetHub.name}-to-${vnetSpoke2.name}'
-  properties: {
-    remoteVirtualNetwork: {
-      id: vnetSpoke2.id
-    }
-    allowForwardedTraffic: true
-    allowGatewayTransit: false
-  }
-}
-
-// Peering from Second Spoke to Hub
-resource spoke2ToHubPeering 'Microsoft.Network/virtualNetworks/virtualNetworkPeerings@2023-02-01' = {
-  parent: vnetSpoke2
-  name: '${vnetSpoke2.name}-to-${vnetHub.name}'
-  properties: {
-    remoteVirtualNetwork: {
-      id: vnetHub.id
-    }
-    allowForwardedTraffic: true
-    useRemoteGateways: false
-  }
-}
-
-// Public IP for Route Server
-resource routeServerPublicIP 'Microsoft.Network/publicIPAddresses@2023-02-01' = {
-  name: 'RouteServerPublicIP'
+// Public IP for the VPN Gateway
+resource gatewayPublicIP 'Microsoft.Network/publicIPAddresses@2023-02-01' = {
+  name: '${gatewayName}-IP'
   location: location
   sku: {
     name: 'Standard'
@@ -167,28 +118,101 @@ resource routeServerPublicIP 'Microsoft.Network/publicIPAddresses@2023-02-01' = 
   }
 }
 
-// Route Server - Fixed with correct resource type and API version
-resource routeServer 'Microsoft.Network/virtualHubs@2021-05-01' = {
-  name: routeServerName
+// Virtual Network Gateway
+resource virtualNetworkGateway 'Microsoft.Network/virtualNetworkGateways@2023-02-01' = {
+  name: gatewayName
   location: location
-  kind: 'RouteServer'
   properties: {
-    allowBranchToBranchTraffic: false
-    virtualHubRouteTableV2s: []
-    sku: 'Standard'
+    ipConfigurations: [
+      {
+        name: 'default'
+        properties: {
+          privateIPAllocationMethod: 'Dynamic'
+          subnet: {
+            id: '${vnetHub.id}/subnets/GatewaySubnet'
+          }
+          publicIPAddress: {
+            id: gatewayPublicIP.id
+          }
+        }
+      }
+    ]
+    gatewayType: 'Vpn'
+    vpnType: 'RouteBased'
+    enableBgp: true
+    sku: {
+      name: gatewaySku
+      tier: gatewaySku
+    }
   }
 }
 
-// Route Server IP Configuration - Separate resource
-resource routeServerIpConfig 'Microsoft.Network/virtualHubs/ipConfigurations@2021-05-01' = {
-  parent: routeServer
-  name: 'ipconfig1'
+// Peering from Hub to First Spoke with Gateway Transit enabled
+resource hubToSpoke1Peering 'Microsoft.Network/virtualNetworks/virtualNetworkPeerings@2023-02-01' = {
+  parent: vnetHub
+  name: '${vnetHub.name}-to-${vnetSpoke1.name}'
   properties: {
-    subnet: {
-      id: '${vnetHub.id}/subnets/RouteServerSubnet'
+    remoteVirtualNetwork: {
+      id: vnetSpoke1.id
     }
-    publicIPAddress: {
-      id: routeServerPublicIP.id
-    }
+    allowForwardedTraffic: true
+    allowGatewayTransit: true  // Enable Gateway Transit
   }
+  dependsOn: [
+    virtualNetworkGateway // Make sure the gateway exists before enabling gateway transit
+  ]
 }
+
+// Peering from First Spoke to Hub with Use Remote Gateways enabled
+resource spoke1ToHubPeering 'Microsoft.Network/virtualNetworks/virtualNetworkPeerings@2023-02-01' = {
+  parent: vnetSpoke1
+  name: '${vnetSpoke1.name}-to-${vnetHub.name}'
+  properties: {
+    remoteVirtualNetwork: {
+      id: vnetHub.id
+    }
+    allowForwardedTraffic: true
+    useRemoteGateways: true  // Use the gateway in the hub VNet
+  }
+  dependsOn: [
+    virtualNetworkGateway // Make sure the gateway exists before enabling use of remote gateways
+  ]
+}
+
+// Peering from Hub to Second Spoke with Gateway Transit enabled
+resource hubToSpoke2Peering 'Microsoft.Network/virtualNetworks/virtualNetworkPeerings@2023-02-01' = {
+  parent: vnetHub
+  name: '${vnetHub.name}-to-${vnetSpoke2.name}'
+  properties: {
+    remoteVirtualNetwork: {
+      id: vnetSpoke2.id
+    }
+    allowForwardedTraffic: true
+    allowGatewayTransit: true  // Enable Gateway Transit
+  }
+  dependsOn: [
+    virtualNetworkGateway // Make sure the gateway exists before enabling gateway transit
+  ]
+}
+
+// Peering from Second Spoke to Hub with Use Remote Gateways enabled
+resource spoke2ToHubPeering 'Microsoft.Network/virtualNetworks/virtualNetworkPeerings@2023-02-01' = {
+  parent: vnetSpoke2
+  name: '${vnetSpoke2.name}-to-${vnetHub.name}'
+  properties: {
+    remoteVirtualNetwork: {
+      id: vnetHub.id
+    }
+    allowForwardedTraffic: true
+    useRemoteGateways: true  // Use the gateway in the hub VNet
+  }
+  dependsOn: [
+    virtualNetworkGateway // Make sure the gateway exists before enabling use of remote gateways
+  ]
+}
+
+// Outputs that might be useful
+output hubVNetId string = vnetHub.id
+output gatewayId string = virtualNetworkGateway.id
+output spoke1VNetId string = vnetSpoke1.id
+output spoke2VNetId string = vnetSpoke2.id
