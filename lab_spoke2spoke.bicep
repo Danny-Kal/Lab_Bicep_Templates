@@ -167,15 +167,27 @@ resource routeServerPublicIP 'Microsoft.Network/publicIPAddresses@2023-02-01' = 
   }
 }
 
-// Route Server - FIXED: Changed resource type from virtualHubs to routeServers
-resource routeServer 'Microsoft.Network/routeServers@2023-02-01' = {
+// Route Server - Fixed with correct resource type and API version
+resource routeServer 'Microsoft.Network/virtualHubs@2021-05-01' = {
   name: routeServerName
   location: location
+  kind: 'RouteServer'
   properties: {
-    hostedSubnet: {
+    allowBranchToBranchTraffic: false
+    virtualHubRouteTableV2s: []
+    sku: 'Standard'
+  }
+}
+
+// Route Server IP Configuration - Separate resource
+resource routeServerIpConfig 'Microsoft.Network/virtualHubs/ipConfigurations@2021-05-01' = {
+  parent: routeServer
+  name: 'ipconfig1'
+  properties: {
+    subnet: {
       id: '${vnetHub.id}/subnets/RouteServerSubnet'
     }
-    publicIpAddress: {
+    publicIPAddress: {
       id: routeServerPublicIP.id
     }
   }
