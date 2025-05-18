@@ -167,26 +167,16 @@ resource routeServerPublicIP 'Microsoft.Network/publicIPAddresses@2023-02-01' = 
   }
 }
 
-// Route Server - FIXED: Changed resource type and API version
-resource routeServer 'Microsoft.Network/virtualHubs@2023-02-01' = {
+// Route Server - FIXED: Changed resource type from virtualHubs to routeServers
+resource routeServer 'Microsoft.Network/routeServers@2023-02-01' = {
   name: routeServerName
   location: location
-  kind: 'RouteServer'  // Added kind property to specify this is a Route Server
   properties: {
-    routeServerAsn: 65515  // Default ASN value
-    routerConfiguration: {}
-    ipConfigurations: [
-      {
-        name: 'ipconfig1'
-        properties: {
-          subnet: {
-            id: '${vnetHub.id}/subnets/RouteServerSubnet'
-          }
-          publicIPAddress: {
-            id: routeServerPublicIP.id
-          }
-        }
-      }
-    ]
+    hostedSubnet: {
+      id: '${vnetHub.id}/subnets/RouteServerSubnet'
+    }
+    publicIpAddress: {
+      id: routeServerPublicIP.id
+    }
   }
 }

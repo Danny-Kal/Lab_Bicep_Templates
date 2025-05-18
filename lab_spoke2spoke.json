@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.33.93.31351",
-      "templateHash": "14236105035987761844"
+      "templateHash": "12837460108242045737"
     }
   },
   "parameters": {
@@ -242,24 +242,16 @@
     },
     {
       "type": "Microsoft.Network/routeServers",
-      "apiVersion": "2022-07-01",
+      "apiVersion": "2023-02-01",
       "name": "[parameters('routeServerName')]",
       "location": "[parameters('location')]",
       "properties": {
-        "routerConfiguration": {},
-        "ipConfigurations": [
-          {
-            "name": "ipconfig1",
-            "properties": {
-              "subnet": {
-                "id": "[format('{0}/subnets/RouteServerSubnet', resourceId('Microsoft.Network/virtualNetworks', 'VN02'))]"
-              },
-              "publicIPAddress": {
-                "id": "[resourceId('Microsoft.Network/publicIPAddresses', 'RouteServerPublicIP')]"
-              }
-            }
-          }
-        ]
+        "hostedSubnet": {
+          "id": "[format('{0}/subnets/RouteServerSubnet', resourceId('Microsoft.Network/virtualNetworks', 'VN02'))]"
+        },
+        "publicIpAddress": {
+          "id": "[resourceId('Microsoft.Network/publicIPAddresses', 'RouteServerPublicIP')]"
+        }
       },
       "dependsOn": [
         "[resourceId('Microsoft.Network/publicIPAddresses', 'RouteServerPublicIP')]",
