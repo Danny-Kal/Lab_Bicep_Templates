@@ -6,7 +6,7 @@ param adminUsername string = 'azureuser'
 
 @description('Admin password for the Virtual Machines')
 @secure()
-param adminPassword string
+param adminPassword string = 'LabPassword123!'
 
 @description('Location for all resources')
 param location string = resourceGroup().location
