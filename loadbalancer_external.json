@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.33.93.31351",
-      "templateHash": "1967416055915990426"
+      "templateHash": "11494362499866382443"
     }
   },
   "parameters": {
@@ -222,9 +222,6 @@
       "apiVersion": "2023-03-01",
       "name": "[format('vm-webserver-{0}', add(range(0, parameters('numberOfVMs'))[copyIndex()], 1))]",
       "location": "[parameters('location')]",
-      "zones": [
-        "[format('{0}', add(mod(range(0, parameters('numberOfVMs'))[copyIndex()], 3), 1))]"
-      ],
       "properties": {
         "hardwareProfile": {
           "vmSize": "[parameters('vmSize')]"

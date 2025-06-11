@@ -185,9 +185,6 @@ resource webServerNICs 'Microsoft.Network/networkInterfaces@2023-04-01' = [for i
 resource webServerVMs 'Microsoft.Compute/virtualMachines@2023-03-01' = [for i in range(0, numberOfVMs): {
   name: 'vm-webserver-${i + 1}'
   location: location
-  zones: [
-    '${(i % 3) + 1}'
-  ]
   properties: {
     hardwareProfile: {
       vmSize: vmSize
