@@ -10,7 +10,7 @@
 // ---- PARAMETERS ----
 
 @description('Location for all resources')
-param location string = resourceGroup().location
+param location string = 'eastus'
 
 @description('Admin username for the VMs')
 param adminUsername string = 'azureuser'
@@ -169,16 +169,19 @@ resource webServerNICs 'Microsoft.Network/networkInterfaces@2023-04-01' = [for i
         properties: {
           privateIPAllocationMethod: 'Dynamic'
           subnet: {
-            id: virtualNetwork.properties.subnets[0].id
+            id: '${virtualNetwork.id}/subnets/${subnetName}'
           }
           publicIPAddress: {
-            id: webServerPublicIPs[i].id
+            id: resourceId('Microsoft.Network/publicIPAddresses', 'pip-webserver-${i + 1}')
           }
         }
       }
     ]
   }
   tags: tags
+  dependsOn: [
+    webServerPublicIPs[i]
+  ]
 }]
 
 // Web Server Virtual Machines
@@ -215,7 +218,7 @@ resource webServerVMs 'Microsoft.Compute/virtualMachines@2023-03-01' = [for i in
     networkProfile: {
       networkInterfaces: [
         {
-          id: webServerNICs[i].id
+          id: resourceId('Microsoft.Network/networkInterfaces', 'nic-webserver-${i + 1}')
         }
       ]
     }
@@ -223,6 +226,9 @@ resource webServerVMs 'Microsoft.Compute/virtualMachines@2023-03-01' = [for i in
   tags: union(tags, {
     ServerNumber: '${i + 1}'
   })
+  dependsOn: [
+    webServerNICs[i]
+  ]
 }]
 
 // Simple Custom Script Extension to enable IIS
