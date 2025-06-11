@@ -10,7 +10,7 @@
 // ---- PARAMETERS ----
 
 @description('Location for all resources')
-param location string = 'eastus'
+param location string = resourceGroup().location
 
 @description('Admin username for the VMs')
 param adminUsername string = 'azureuser'
@@ -47,7 +47,7 @@ var tags = {
 // ---- RESOURCES ----
 
 // Network Security Group for web servers
-resource webServerNSG 'Microsoft.Network/networkSecurityGroups@2023-04-01' = {
+resource webServerNSG 'Microsoft.Network/networkSecurityGroups@2022-07-01' = {
   name: nsgName
   location: location
   properties: {
@@ -100,7 +100,7 @@ resource webServerNSG 'Microsoft.Network/networkSecurityGroups@2023-04-01' = {
 }
 
 // Virtual Network
-resource virtualNetwork 'Microsoft.Network/virtualNetworks@2023-04-01' = {
+resource virtualNetwork 'Microsoft.Network/virtualNetworks@2022-07-01' = {
   name: vnetName
   location: location
   properties: {
@@ -125,7 +125,7 @@ resource virtualNetwork 'Microsoft.Network/virtualNetworks@2023-04-01' = {
 }
 
 // Public IP Address (for students to attach to their load balancer)
-resource loadBalancerPublicIP 'Microsoft.Network/publicIPAddresses@2023-04-01' = {
+resource loadBalancerPublicIP 'Microsoft.Network/publicIPAddresses@2022-07-01' = {
   name: publicIpName
   location: location
   sku: {
@@ -144,7 +144,7 @@ resource loadBalancerPublicIP 'Microsoft.Network/publicIPAddresses@2023-04-01' =
 }
 
 // Temporary Public IPs for individual VM access (for management/setup)
-resource webServerPublicIPs 'Microsoft.Network/publicIPAddresses@2023-04-01' = [for i in range(0, numberOfVMs): {
+resource webServerPublicIPs 'Microsoft.Network/publicIPAddresses@2022-07-01' = [for i in range(0, numberOfVMs): {
   name: 'pip-webserver-${i + 1}'
   location: location
   sku: {
@@ -159,7 +159,7 @@ resource webServerPublicIPs 'Microsoft.Network/publicIPAddresses@2023-04-01' = [
 }]
 
 // Network Interfaces for Web Server VMs
-resource webServerNICs 'Microsoft.Network/networkInterfaces@2023-04-01' = [for i in range(0, numberOfVMs): {
+resource webServerNICs 'Microsoft.Network/networkInterfaces@2022-07-01' = [for i in range(0, numberOfVMs): {
   name: 'nic-webserver-${i + 1}'
   location: location
   properties: {
@@ -172,20 +172,17 @@ resource webServerNICs 'Microsoft.Network/networkInterfaces@2023-04-01' = [for i
             id: '${virtualNetwork.id}/subnets/${subnetName}'
           }
           publicIPAddress: {
-            id: resourceId('Microsoft.Network/publicIPAddresses', 'pip-webserver-${i + 1}')
+            id: webServerPublicIPs[i].id
           }
         }
       }
     ]
   }
   tags: tags
-  dependsOn: [
-    webServerPublicIPs[i]
-  ]
 }]
 
 // Web Server Virtual Machines
-resource webServerVMs 'Microsoft.Compute/virtualMachines@2023-03-01' = [for i in range(0, numberOfVMs): {
+resource webServerVMs 'Microsoft.Compute/virtualMachines@2022-08-01' = [for i in range(0, numberOfVMs): {
   name: 'vm-webserver-${i + 1}'
   location: location
   properties: {
@@ -218,7 +215,7 @@ resource webServerVMs 'Microsoft.Compute/virtualMachines@2023-03-01' = [for i in
     networkProfile: {
       networkInterfaces: [
         {
-          id: resourceId('Microsoft.Network/networkInterfaces', 'nic-webserver-${i + 1}')
+          id: webServerNICs[i].id
         }
       ]
     }
@@ -226,15 +223,13 @@ resource webServerVMs 'Microsoft.Compute/virtualMachines@2023-03-01' = [for i in
   tags: union(tags, {
     ServerNumber: '${i + 1}'
   })
-  dependsOn: [
-    webServerNICs[i]
-  ]
 }]
 
 // Simple Custom Script Extension to enable IIS
-resource webServerExtensions 'Microsoft.Compute/virtualMachines/extensions@2023-03-01' = [for i in range(0, numberOfVMs): {
+resource webServerExtensions 'Microsoft.Compute/virtualMachines/extensions@2022-08-01' = [for i in range(0, numberOfVMs): {
   name: 'EnableIIS'
   parent: webServerVMs[i]
+  location: location
   properties: {
     publisher: 'Microsoft.Compute'
     type: 'CustomScriptExtension'

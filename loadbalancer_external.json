@@ -5,13 +5,13 @@
     "_generator": {
       "name": "bicep",
       "version": "0.33.93.31351",
-      "templateHash": "6366581569822686153"
+      "templateHash": "5195506722512852446"
     }
   },
   "parameters": {
     "location": {
       "type": "string",
-      "defaultValue": "eastus",
+      "defaultValue": "[resourceGroup().location]",
       "metadata": {
         "description": "Location for all resources"
       }
@@ -69,7 +69,7 @@
   "resources": [
     {
       "type": "Microsoft.Network/networkSecurityGroups",
-      "apiVersion": "2023-04-01",
+      "apiVersion": "2022-07-01",
       "name": "[variables('nsgName')]",
       "location": "[parameters('location')]",
       "properties": {
@@ -122,7 +122,7 @@
     },
     {
       "type": "Microsoft.Network/virtualNetworks",
-      "apiVersion": "2023-04-01",
+      "apiVersion": "2022-07-01",
       "name": "[variables('vnetName')]",
       "location": "[parameters('location')]",
       "properties": {
@@ -150,7 +150,7 @@
     },
     {
       "type": "Microsoft.Network/publicIPAddresses",
-      "apiVersion": "2023-04-01",
+      "apiVersion": "2022-07-01",
       "name": "[variables('publicIpName')]",
       "location": "[parameters('location')]",
       "sku": {
@@ -171,7 +171,7 @@
         "count": "[length(range(0, parameters('numberOfVMs')))]"
       },
       "type": "Microsoft.Network/publicIPAddresses",
-      "apiVersion": "2023-04-01",
+      "apiVersion": "2022-07-01",
       "name": "[format('pip-webserver-{0}', add(range(0, parameters('numberOfVMs'))[copyIndex()], 1))]",
       "location": "[parameters('location')]",
       "sku": {
@@ -188,7 +188,7 @@
         "count": "[length(range(0, parameters('numberOfVMs')))]"
       },
       "type": "Microsoft.Network/networkInterfaces",
-      "apiVersion": "2023-04-01",
+      "apiVersion": "2022-07-01",
       "name": "[format('nic-webserver-{0}', add(range(0, parameters('numberOfVMs'))[copyIndex()], 1))]",
       "location": "[parameters('location')]",
       "properties": {
@@ -201,7 +201,7 @@
                 "id": "[format('{0}/subnets/{1}', resourceId('Microsoft.Network/virtualNetworks', variables('vnetName')), variables('subnetName'))]"
               },
               "publicIPAddress": {
-                "id": "[resourceId('Microsoft.Network/publicIPAddresses', format('pip-webserver-{0}', add(range(0, parameters('numberOfVMs'))[copyIndex()], 1)))]"
+                "id": "[resourceId('Microsoft.Network/publicIPAddresses', format('pip-webserver-{0}', add(range(0, parameters('numberOfVMs'))[range(0, parameters('numberOfVMs'))[copyIndex()]], 1)))]"
               }
             }
           }
@@ -219,7 +219,7 @@
         "count": "[length(range(0, parameters('numberOfVMs')))]"
       },
       "type": "Microsoft.Compute/virtualMachines",
-      "apiVersion": "2023-03-01",
+      "apiVersion": "2022-08-01",
       "name": "[format('vm-webserver-{0}', add(range(0, parameters('numberOfVMs'))[copyIndex()], 1))]",
       "location": "[parameters('location')]",
       "properties": {
@@ -252,7 +252,7 @@
         "networkProfile": {
           "networkInterfaces": [
             {
-              "id": "[resourceId('Microsoft.Network/networkInterfaces', format('nic-webserver-{0}', add(range(0, parameters('numberOfVMs'))[copyIndex()], 1)))]"
+              "id": "[resourceId('Microsoft.Network/networkInterfaces', format('nic-webserver-{0}', add(range(0, parameters('numberOfVMs'))[range(0, parameters('numberOfVMs'))[copyIndex()]], 1)))]"
             }
           ]
         }
@@ -268,8 +268,9 @@
         "count": "[length(range(0, parameters('numberOfVMs')))]"
       },
       "type": "Microsoft.Compute/virtualMachines/extensions",
-      "apiVersion": "2023-03-01",
+      "apiVersion": "2022-08-01",
       "name": "[format('{0}/{1}', format('vm-webserver-{0}', add(range(0, parameters('numberOfVMs'))[range(0, parameters('numberOfVMs'))[copyIndex()]], 1)), 'EnableIIS')]",
+      "location": "[parameters('location')]",
       "properties": {
         "publisher": "Microsoft.Compute",
         "type": "CustomScriptExtension",
@@ -287,11 +288,11 @@
   "outputs": {
     "publicIPAddress": {
       "type": "string",
-      "value": "[reference(resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpName')), '2023-04-01').ipAddress]"
+      "value": "[reference(resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpName')), '2022-07-01').ipAddress]"
     },
     "publicIPFqdn": {
       "type": "string",
-      "value": "[reference(resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpName')), '2023-04-01').dnsSettings.fqdn]"
+      "value": "[reference(resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpName')), '2022-07-01').dnsSettings.fqdn]"
     }
   }
 }
