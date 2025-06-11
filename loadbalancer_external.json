@@ -1,0 +1,300 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.33.93.31351",
+      "templateHash": "1967416055915990426"
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Location for all resources"
+      }
+    },
+    "adminUsername": {
+      "type": "string",
+      "defaultValue": "azureuser",
+      "metadata": {
+        "description": "Admin username for the VMs"
+      }
+    },
+    "adminPassword": {
+      "type": "securestring",
+      "defaultValue": "Lab@Password123!",
+      "metadata": {
+        "description": "Admin password for the VMs"
+      }
+    },
+    "vmSize": {
+      "type": "string",
+      "defaultValue": "Standard_B2s",
+      "metadata": {
+        "description": "Size for the web server VMs"
+      }
+    },
+    "numberOfVMs": {
+      "type": "int",
+      "defaultValue": 3,
+      "minValue": 2,
+      "maxValue": 5,
+      "metadata": {
+        "description": "Number of web server VMs to deploy"
+      }
+    },
+    "labId": {
+      "type": "string",
+      "defaultValue": "[uniqueString(resourceGroup().id)]",
+      "metadata": {
+        "description": "Unique identifier for resource naming"
+      }
+    }
+  },
+  "variables": {
+    "vnetName": "vnet-webtier",
+    "subnetName": "subnet-webservers",
+    "nsgName": "nsg-webservers",
+    "publicIpName": "pip-loadbalancer",
+    "vnetAddressPrefix": "10.0.0.0/16",
+    "subnetAddressPrefix": "10.0.1.0/24",
+    "tags": {
+      "Environment": "Lab",
+      "Purpose": "PublicLoadBalancerLab"
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "apiVersion": "2023-04-01",
+      "name": "[variables('nsgName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "securityRules": [
+          {
+            "name": "Allow-HTTP-Inbound",
+            "properties": {
+              "description": "Allow HTTP traffic from internet",
+              "protocol": "Tcp",
+              "sourcePortRange": "*",
+              "destinationPortRange": "80",
+              "sourceAddressPrefix": "Internet",
+              "destinationAddressPrefix": "*",
+              "access": "Allow",
+              "priority": 1000,
+              "direction": "Inbound"
+            }
+          },
+          {
+            "name": "Allow-LoadBalancer-HealthProbe",
+            "properties": {
+              "description": "Allow Azure Load Balancer health probes",
+              "protocol": "*",
+              "sourcePortRange": "*",
+              "destinationPortRange": "*",
+              "sourceAddressPrefix": "AzureLoadBalancer",
+              "destinationAddressPrefix": "*",
+              "access": "Allow",
+              "priority": 1010,
+              "direction": "Inbound"
+            }
+          },
+          {
+            "name": "Allow-RDP-Inbound",
+            "properties": {
+              "description": "Allow RDP for management",
+              "protocol": "Tcp",
+              "sourcePortRange": "*",
+              "destinationPortRange": "3389",
+              "sourceAddressPrefix": "Internet",
+              "destinationAddressPrefix": "*",
+              "access": "Allow",
+              "priority": 1020,
+              "direction": "Inbound"
+            }
+          }
+        ]
+      },
+      "tags": "[variables('tags')]"
+    },
+    {
+      "type": "Microsoft.Network/virtualNetworks",
+      "apiVersion": "2023-04-01",
+      "name": "[variables('vnetName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "[variables('vnetAddressPrefix')]"
+          ]
+        },
+        "subnets": [
+          {
+            "name": "[variables('subnetName')]",
+            "properties": {
+              "addressPrefix": "[variables('subnetAddressPrefix')]",
+              "networkSecurityGroup": {
+                "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('nsgName'))]"
+              }
+            }
+          }
+        ]
+      },
+      "tags": "[variables('tags')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/networkSecurityGroups', variables('nsgName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Network/publicIPAddresses",
+      "apiVersion": "2023-04-01",
+      "name": "[variables('publicIpName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Standard",
+        "tier": "Regional"
+      },
+      "properties": {
+        "publicIPAllocationMethod": "Static",
+        "dnsSettings": {
+          "domainNameLabel": "[format('weblb-{0}', parameters('labId'))]"
+        }
+      },
+      "tags": "[union(variables('tags'), createObject('Note', 'Reserved for student load balancer configuration'))]"
+    },
+    {
+      "copy": {
+        "name": "webServerPublicIPs",
+        "count": "[length(range(0, parameters('numberOfVMs')))]"
+      },
+      "type": "Microsoft.Network/publicIPAddresses",
+      "apiVersion": "2023-04-01",
+      "name": "[format('pip-webserver-{0}', add(range(0, parameters('numberOfVMs'))[copyIndex()], 1))]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Basic"
+      },
+      "properties": {
+        "publicIPAllocationMethod": "Dynamic"
+      },
+      "tags": "[union(variables('tags'), createObject('Note', 'Temporary for setup - can be removed after load balancer is configured'))]"
+    },
+    {
+      "copy": {
+        "name": "webServerNICs",
+        "count": "[length(range(0, parameters('numberOfVMs')))]"
+      },
+      "type": "Microsoft.Network/networkInterfaces",
+      "apiVersion": "2023-04-01",
+      "name": "[format('nic-webserver-{0}', add(range(0, parameters('numberOfVMs'))[copyIndex()], 1))]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "ipConfigurations": [
+          {
+            "name": "ipconfig1",
+            "properties": {
+              "privateIPAllocationMethod": "Dynamic",
+              "subnet": {
+                "id": "[reference(resourceId('Microsoft.Network/virtualNetworks', variables('vnetName')), '2023-04-01').subnets[0].id]"
+              },
+              "publicIPAddress": {
+                "id": "[resourceId('Microsoft.Network/publicIPAddresses', format('pip-webserver-{0}', add(range(0, parameters('numberOfVMs'))[range(0, parameters('numberOfVMs'))[copyIndex()]], 1)))]"
+              }
+            }
+          }
+        ]
+      },
+      "tags": "[variables('tags')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]",
+        "[resourceId('Microsoft.Network/publicIPAddresses', format('pip-webserver-{0}', add(range(0, parameters('numberOfVMs'))[range(0, parameters('numberOfVMs'))[copyIndex()]], 1)))]"
+      ]
+    },
+    {
+      "copy": {
+        "name": "webServerVMs",
+        "count": "[length(range(0, parameters('numberOfVMs')))]"
+      },
+      "type": "Microsoft.Compute/virtualMachines",
+      "apiVersion": "2023-03-01",
+      "name": "[format('vm-webserver-{0}', add(range(0, parameters('numberOfVMs'))[copyIndex()], 1))]",
+      "location": "[parameters('location')]",
+      "zones": [
+        "[format('{0}', add(mod(range(0, parameters('numberOfVMs'))[copyIndex()], 3), 1))]"
+      ],
+      "properties": {
+        "hardwareProfile": {
+          "vmSize": "[parameters('vmSize')]"
+        },
+        "osProfile": {
+          "computerName": "[format('webserver{0}', add(range(0, parameters('numberOfVMs'))[copyIndex()], 1))]",
+          "adminUsername": "[parameters('adminUsername')]",
+          "adminPassword": "[parameters('adminPassword')]",
+          "windowsConfiguration": {
+            "enableAutomaticUpdates": true,
+            "provisionVMAgent": true
+          }
+        },
+        "storageProfile": {
+          "imageReference": {
+            "publisher": "MicrosoftWindowsServer",
+            "offer": "WindowsServer",
+            "sku": "2022-datacenter-smalldisk-g2",
+            "version": "latest"
+          },
+          "osDisk": {
+            "createOption": "FromImage",
+            "managedDisk": {
+              "storageAccountType": "Standard_LRS"
+            }
+          }
+        },
+        "networkProfile": {
+          "networkInterfaces": [
+            {
+              "id": "[resourceId('Microsoft.Network/networkInterfaces', format('nic-webserver-{0}', add(range(0, parameters('numberOfVMs'))[range(0, parameters('numberOfVMs'))[copyIndex()]], 1)))]"
+            }
+          ]
+        }
+      },
+      "tags": "[union(variables('tags'), createObject('ServerNumber', format('{0}', add(range(0, parameters('numberOfVMs'))[copyIndex()], 1))))]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/networkInterfaces', format('nic-webserver-{0}', add(range(0, parameters('numberOfVMs'))[range(0, parameters('numberOfVMs'))[copyIndex()]], 1)))]"
+      ]
+    },
+    {
+      "copy": {
+        "name": "webServerExtensions",
+        "count": "[length(range(0, parameters('numberOfVMs')))]"
+      },
+      "type": "Microsoft.Compute/virtualMachines/extensions",
+      "apiVersion": "2023-03-01",
+      "name": "[format('{0}/{1}', format('vm-webserver-{0}', add(range(0, parameters('numberOfVMs'))[range(0, parameters('numberOfVMs'))[copyIndex()]], 1)), 'EnableIIS')]",
+      "properties": {
+        "publisher": "Microsoft.Compute",
+        "type": "CustomScriptExtension",
+        "typeHandlerVersion": "1.10",
+        "autoUpgradeMinorVersion": true,
+        "settings": {
+          "commandToExecute": "powershell.exe Install-WindowsFeature -name Web-Server -IncludeManagementTools"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Compute/virtualMachines', format('vm-webserver-{0}', add(range(0, parameters('numberOfVMs'))[range(0, parameters('numberOfVMs'))[copyIndex()]], 1)))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "publicIPAddress": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpName')), '2023-04-01').ipAddress]"
+    },
+    "publicIPFqdn": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpName')), '2023-04-01').dnsSettings.fqdn]"
+    }
+  }
+}
