@@ -41,6 +41,54 @@ function Write-DetailedLog {
     }
 }
 
+# Function to update cleanup status (helper function)
+function Update-AccountCleanupStatus {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory=$true)]
+        [string]$Username,
+        
+        [Parameter(Mandatory=$true)]
+        [Microsoft.Azure.Cosmos.Table.CloudTable]$Table,
+        
+        [Parameter(Mandatory=$true)]
+        [string]$Status
+    )
+    
+    try {
+        # Get fresh account from table
+        $filter = "Username eq '$Username'"
+        $accounts = Get-AzTableRow -Table $Table -CustomFilter $filter
+        
+        if ($accounts -and $accounts.Count -gt 0) {
+            $account = $accounts[0]
+            $account.CleanupStatus = $Status
+            Update-AzTableRow -Table $Table -Entity $account
+            
+            Write-DetailedLog -Message "Cleanup status updated" -Level "DEBUG" -Data @{
+                username = $Username
+                newStatus = $Status
+            }
+            return $true
+        }
+        else {
+            Write-DetailedLog -Message "Account not found for status update" -Level "WARNING" -Data @{
+                username = $Username
+                targetStatus = $Status
+            }
+            return $false
+        }
+    }
+    catch {
+        Write-DetailedLog -Message "Failed to update cleanup status" -Level "WARNING" -Data @{
+            username = $Username
+            targetStatus = $Status
+            error = $_.Exception.Message
+        }
+        return $false
+    }
+}
+
 # Function to release an account back to the pool (using Table Storage)
 function Release-AccountToPool {
     [CmdletBinding()]
@@ -84,6 +132,26 @@ function Release-AccountToPool {
     }
     
     $account = $accounts[0]
+    
+    # NEW: Update status to 'started' at the beginning of cleanup process
+    Write-DetailedLog -Message "Updating cleanup status to 'started'" -Level "DEBUG" -Data @{
+        username = $Username
+    }
+    
+    try {
+        $account.CleanupStatus = "started"
+        Update-AzTableRow -Table $Table -Entity $account
+        Write-DetailedLog -Message "Cleanup status updated to 'started'" -Level "DEBUG" -Data @{
+            username = $Username
+        }
+    }
+    catch {
+        Write-DetailedLog -Message "Failed to update cleanup status to 'started'" -Level "WARNING" -Data @{
+            username = $Username
+            error = $_.Exception.Message
+        }
+        # Continue with cleanup even if status update fails
+    }
     
     # Release the account back to the pool
     $account.IsInUse = $false    # Keep as boolean for consistency with other functions
@@ -234,15 +302,18 @@ try {
     $resourceGroup = $account.ResourceGroup
     
     if (-not $resourceGroup) {
-        Write-DetailedLog -Message "No resource group associated with this account" -Level "WARNING" -Data @{
+        Write-DetailedLog -Message "No resource group associated with this account - this is an error condition" -Level "ERROR" -Data @{
             username = $username
         }
         
+        # Revert status to 'waiting' since cleanup failed (no resource group to clean)
+        Update-AccountCleanupStatus -Username $username -Table $table -Status "waiting"
+        
         Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
-            StatusCode = [HttpStatusCode]::OK
+            StatusCode = [HttpStatusCode]::BadRequest
             Headers = @{ "Content-Type" = "application/json" }
             Body = ConvertTo-Json @{
-                message = "Account released, but no resource group found to clean up."
+                error = "Account released, but no resource group found to clean up. This indicates a data consistency issue."
                 username = $username
                 deploymentName = $deploymentName
             }
@@ -326,6 +397,9 @@ try {
         # Continue execution - incomplete cleanup shouldn't prevent account release
     }
     
+    # Update status to 'completed' on successful completion
+    Update-AccountCleanupStatus -Username $username -Table $table -Status "completed"
+    
     # Return success response
     Write-DetailedLog -Message "Cleanup completed successfully" -Level "INFO" -Data @{
         username = $username
@@ -348,6 +422,11 @@ catch {
     Write-DetailedLog -Message "Cleanup function failed" -Level "ERROR" -Data @{
         error = $_.Exception.Message
         stackTrace = $_.ScriptStackTrace
+    }
+    
+    # Update status back to 'waiting' on error so timer can retry
+    if ($username) {
+        Update-AccountCleanupStatus -Username $username -Table $table -Status "waiting"
     }
     
     # Return error response
