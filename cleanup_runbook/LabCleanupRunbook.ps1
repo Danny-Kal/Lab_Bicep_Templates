@@ -98,7 +98,7 @@ try {
     # Step 3: Reset password (critical operation)
     $tenantId = "2e2d8b2f-2d7f-4c12-9bb7-90152233ddc5"
     $clientId = "fdfe7185-3276-43fb-b38c-af2b43508ac5"
-    $clientSecret = "xxx"
+    $clientSecret = Get-AutomationVariable -Name "graph_pw_secret" 
 
     $body = @{
         grant_type    = "client_credentials"
@@ -117,7 +117,6 @@ try {
     $userId = $Username
 
     # New password
-    # $newPassword = "NewSecurePassword123!"
     $newPassword = -join ((65..90) + (97..122) + (48..57) | Get-Random -Count 12 | ForEach-Object {[char]$_}) + "!"
 
     # Microsoft Graph endpoint
@@ -137,23 +136,18 @@ try {
         }
     } | ConvertTo-Json -Depth 3
 
-    <# Send PATCH request
-    try {
-        Invoke-RestMethod -Method Patch -Uri $uri -Headers $headers -Body $body
-        Write-Host "`n✅ Password changed successfully for user: $userId"
-    } catch {
-        Write-Host "`n❌ Error changing password:"
-        Write-Host $_.Exception.Message
-    }
-    #>
-
-    ###############################################
-
     # Send PATCH request
-    try {
-        Invoke-RestMethod -Method Patch -Uri $uri -Headers $headers -Body $body
-        Write-Host "`n✅ Password changed successfully for user: $userId"
-    } catch {
+    
+try {
+    Invoke-RestMethod -Method Patch -Uri $uri -Headers $headers -Body $body
+    Write-Host "`n✅ Password changed successfully for user: $userId"
+
+    # Update password in Azure Table Storage
+    $account.password = $newPassword
+    Update-AzTableRow -Table $table -Entity $account
+    Write-AutomationLog -Message "Password updated in table storage"
+}
+ catch {
         Write-Host "`n❌ Error changing password:"
 
         $errorResponse = $_.ErrorDetails.Message
@@ -164,6 +158,7 @@ try {
             Write-Host $_.Exception.Message
         }
     }
+
 
     # Step 4: Clean resource group (critical operation)
     $resourceGroup = $account.ResourceGroup
