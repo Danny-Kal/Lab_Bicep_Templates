@@ -78,3 +78,5 @@ curl -X POST `
         "username": "user1@buildcloudskills.com"
       }' `
   https://simpleltest4framerbutton.azurewebsites.net/api/cleanup_function
+
+  
