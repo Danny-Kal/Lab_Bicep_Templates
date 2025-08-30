@@ -1,3 +1,4 @@
+# LabCleanupTriggerRunbook.ps1
 
 # Import required modules
 Import-Module Az.Accounts
@@ -8,17 +9,24 @@ Import-Module AzTable
 # Connect to Azure
 Connect-AzAccount -Identity
 
-# Define storage account and table details
-$storageAccountName = "aa-lab-cleanup"
-$resourceGroupName = "rg-automation"
-$tableName = Get-AutomationVariable -Name "TableName"
-$automationAccountName = Get-AutomationVariable -Name "AutomationAccountName"
+# Configuration
+$storageAccountName = "functionapptestsb875"
+$storageResourceGroup = "FunctionAppTests"
+$automationResourceGroup = "rg-automation"
+$automationAccountName = "aa-lab-cleanup"
+$tableName = "LabAccounts"
 
 # Get storage account key
-$storageAccountKey = (Get-AzStorageAccountKey -ResourceGroupName $resourceGroupName -Name $storageAccountName)[0].Value
+$keys = Get-AzStorageAccountKey -ResourceGroupName $storageResourceGroup -Name $storageAccountName
+if (-not $keys) {
+    throw "Failed to retrieve storage account keys for $storageAccountName"
+}
+$storageAccountKey = $keys[0].Value
 
-# Connect to Table Storage
+# Create storage context
 $ctx = New-AzStorageContext -StorageAccountName $storageAccountName -StorageAccountKey $storageAccountKey
+
+# Get table reference
 $table = (Get-AzStorageTable -Name $tableName -Context $ctx).CloudTable
 
 # Get current UTC time
@@ -39,7 +47,7 @@ foreach ($account in $accounts) {
         # Trigger LabCleanupRunbook
         Start-AzAutomationRunbook `
             -AutomationAccountName $automationAccountName `
-            -ResourceGroupName $resourceGroupName `
+            -ResourceGroupName $automationResourceGroup `
             -Name "LabCleanupRunbook" `
             -Parameters @{ Username = $account.Username }
     }
