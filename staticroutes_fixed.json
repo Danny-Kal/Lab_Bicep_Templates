@@ -1,0 +1,351 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.36.1.42791",
+      "templateHash": "673460075143033748"
+    }
+  },
+  "parameters": {
+    "adminUsername": {
+      "type": "string",
+      "defaultValue": "azureuser"
+    },
+    "adminPassword": {
+      "type": "securestring"
+    }
+  },
+  "variables": {
+    "tags": {
+      "lab": "StaticRoutesLab",
+      "scenario": "Public->DMZ(NVA)->Private"
+    },
+    "vnetName": "ApplicationVnet",
+    "publicSubnetName": "public-sn",
+    "dmzSubnetName": "dmz-sn",
+    "privateSubnetName": "private-sn",
+    "vnetCidr": "10.10.0.0/16",
+    "publicSubnetCidr": "10.10.1.0/24",
+    "dmzSubnetCidr": "10.10.2.0/24",
+    "privateSubnetCidr": "10.10.3.0/24",
+    "vmSize": "Standard_B2s",
+    "ubuntuImage": {
+      "publisher": "Canonical",
+      "offer": "0001-com-ubuntu-server-jammy",
+      "sku": "22_04-lts-gen2",
+      "version": "latest"
+    },
+    "publicSubnetId": "[format('{0}/subnets/{1}', resourceId('Microsoft.Network/virtualNetworks', variables('vnetName')), variables('publicSubnetName'))]",
+    "dmzSubnetId": "[format('{0}/subnets/{1}', resourceId('Microsoft.Network/virtualNetworks', variables('vnetName')), variables('dmzSubnetName'))]",
+    "privateSubnetId": "[format('{0}/subnets/{1}', resourceId('Microsoft.Network/virtualNetworks', variables('vnetName')), variables('privateSubnetName'))]",
+    "webInstances": [
+      {
+        "name": "web-01",
+        "nicName": "web-01-nic",
+        "pipName": "web-01-pip"
+      },
+      {
+        "name": "web-02",
+        "nicName": "web-02-nic",
+        "pipName": "web-02-pip"
+      }
+    ],
+    "webCloudInit": "[base64('#cloud-config\npackage_update: true\npackages:\n  - nginx\nruncmd:\n  - systemctl enable nginx\n  - systemctl start nginx\n  - echo \"Hello from $(hostname)\" > /var/www/html/index.html\n')]",
+    "nvaCloudInit": "[base64('#cloud-config\nwrite_files:\n  - path: /etc/sysctl.d/99-nva.conf\n    permissions: ''0644''\n    content: |\n      net.ipv4.ip_forward=1\n      net.ipv4.conf.all.rp_filter=0\n      net.ipv4.conf.default.rp_filter=0\nruncmd:\n  - sysctl --system\n')]",
+    "appCloudInit": "[base64('#cloud-config\npackage_update: true\nruncmd:\n  - apt-get update -y\n  - apt-get install -y iputils-ping\n  - echo \"App server ready: $(hostname)\" > /etc/motd\n')]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Network/virtualNetworks",
+      "apiVersion": "2023-04-01",
+      "name": "[variables('vnetName')]",
+      "location": "[resourceGroup().location]",
+      "tags": "[variables('tags')]",
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "[variables('vnetCidr')]"
+          ]
+        },
+        "subnets": [
+          {
+            "name": "[variables('publicSubnetName')]",
+            "properties": {
+              "addressPrefix": "[variables('publicSubnetCidr')]"
+            }
+          },
+          {
+            "name": "[variables('dmzSubnetName')]",
+            "properties": {
+              "addressPrefix": "[variables('dmzSubnetCidr')]"
+            }
+          },
+          {
+            "name": "[variables('privateSubnetName')]",
+            "properties": {
+              "addressPrefix": "[variables('privateSubnetCidr')]"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "copy": {
+        "name": "webPips",
+        "count": "[length(variables('webInstances'))]"
+      },
+      "type": "Microsoft.Network/publicIPAddresses",
+      "apiVersion": "2023-04-01",
+      "name": "[variables('webInstances')[copyIndex()].pipName]",
+      "location": "[resourceGroup().location]",
+      "sku": {
+        "name": "Standard"
+      },
+      "tags": "[variables('tags')]",
+      "properties": {
+        "publicIPAllocationMethod": "Static"
+      }
+    },
+    {
+      "copy": {
+        "name": "webNics",
+        "count": "[length(variables('webInstances'))]"
+      },
+      "type": "Microsoft.Network/networkInterfaces",
+      "apiVersion": "2023-04-01",
+      "name": "[variables('webInstances')[copyIndex()].nicName]",
+      "location": "[resourceGroup().location]",
+      "tags": "[variables('tags')]",
+      "properties": {
+        "ipConfigurations": [
+          {
+            "name": "ipconfig1",
+            "properties": {
+              "privateIPAllocationMethod": "Dynamic",
+              "subnet": {
+                "id": "[variables('publicSubnetId')]"
+              },
+              "publicIPAddress": {
+                "id": "[resourceId('Microsoft.Network/publicIPAddresses', variables('webInstances')[copyIndex()].pipName)]"
+              }
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]",
+        "[resourceId('Microsoft.Network/publicIPAddresses', variables('webInstances')[copyIndex()].pipName)]"
+      ]
+    },
+    {
+      "copy": {
+        "name": "webVms",
+        "count": "[length(variables('webInstances'))]"
+      },
+      "type": "Microsoft.Compute/virtualMachines",
+      "apiVersion": "2023-09-01",
+      "name": "[variables('webInstances')[copyIndex()].name]",
+      "location": "[resourceGroup().location]",
+      "tags": "[union(variables('tags'), createObject('role', 'web'))]",
+      "properties": {
+        "hardwareProfile": {
+          "vmSize": "[variables('vmSize')]"
+        },
+        "osProfile": {
+          "computerName": "[variables('webInstances')[copyIndex()].name]",
+          "adminUsername": "[parameters('adminUsername')]",
+          "adminPassword": "[parameters('adminPassword')]",
+          "linuxConfiguration": {
+            "disablePasswordAuthentication": false
+          },
+          "customData": "[variables('webCloudInit')]"
+        },
+        "storageProfile": {
+          "imageReference": "[variables('ubuntuImage')]",
+          "osDisk": {
+            "createOption": "FromImage",
+            "managedDisk": {
+              "storageAccountType": "Standard_LRS"
+            }
+          }
+        },
+        "networkProfile": {
+          "networkInterfaces": [
+            {
+              "id": "[resourceId('Microsoft.Network/networkInterfaces', variables('webInstances')[copyIndex()].nicName)]"
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/networkInterfaces', variables('webInstances')[copyIndex()].nicName)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Network/networkInterfaces",
+      "apiVersion": "2023-04-01",
+      "name": "nva-01-nic",
+      "location": "[resourceGroup().location]",
+      "tags": "[variables('tags')]",
+      "properties": {
+        "enableIPForwarding": true,
+        "ipConfigurations": [
+          {
+            "name": "ipconfig1",
+            "properties": {
+              "privateIPAllocationMethod": "Static",
+              "privateIPAddress": "10.10.2.4",
+              "subnet": {
+                "id": "[variables('dmzSubnetId')]"
+              }
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Compute/virtualMachines",
+      "apiVersion": "2023-09-01",
+      "name": "nva-01",
+      "location": "[resourceGroup().location]",
+      "tags": "[union(variables('tags'), createObject('role', 'nva'))]",
+      "properties": {
+        "hardwareProfile": {
+          "vmSize": "[variables('vmSize')]"
+        },
+        "osProfile": {
+          "computerName": "nva-01",
+          "adminUsername": "[parameters('adminUsername')]",
+          "adminPassword": "[parameters('adminPassword')]",
+          "linuxConfiguration": {
+            "disablePasswordAuthentication": false
+          },
+          "customData": "[variables('nvaCloudInit')]"
+        },
+        "storageProfile": {
+          "imageReference": "[variables('ubuntuImage')]",
+          "osDisk": {
+            "createOption": "FromImage",
+            "managedDisk": {
+              "storageAccountType": "Standard_LRS"
+            }
+          }
+        },
+        "networkProfile": {
+          "networkInterfaces": [
+            {
+              "id": "[resourceId('Microsoft.Network/networkInterfaces', 'nva-01-nic')]"
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/networkInterfaces', 'nva-01-nic')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Network/networkInterfaces",
+      "apiVersion": "2023-04-01",
+      "name": "app-01-nic",
+      "location": "[resourceGroup().location]",
+      "tags": "[variables('tags')]",
+      "properties": {
+        "ipConfigurations": [
+          {
+            "name": "ipconfig1",
+            "properties": {
+              "privateIPAllocationMethod": "Static",
+              "privateIPAddress": "10.10.3.4",
+              "subnet": {
+                "id": "[variables('privateSubnetId')]"
+              }
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Compute/virtualMachines",
+      "apiVersion": "2023-09-01",
+      "name": "app-01",
+      "location": "[resourceGroup().location]",
+      "tags": "[union(variables('tags'), createObject('role', 'app'))]",
+      "properties": {
+        "hardwareProfile": {
+          "vmSize": "[variables('vmSize')]"
+        },
+        "osProfile": {
+          "computerName": "app-01",
+          "adminUsername": "[parameters('adminUsername')]",
+          "adminPassword": "[parameters('adminPassword')]",
+          "linuxConfiguration": {
+            "disablePasswordAuthentication": false
+          },
+          "customData": "[variables('appCloudInit')]"
+        },
+        "storageProfile": {
+          "imageReference": "[variables('ubuntuImage')]",
+          "osDisk": {
+            "createOption": "FromImage",
+            "managedDisk": {
+              "storageAccountType": "Standard_LRS"
+            }
+          }
+        },
+        "networkProfile": {
+          "networkInterfaces": [
+            {
+              "id": "[resourceId('Microsoft.Network/networkInterfaces', 'app-01-nic')]"
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/networkInterfaces', 'app-01-nic')]"
+      ]
+    }
+  ],
+  "outputs": {
+    "vnetName": {
+      "type": "string",
+      "value": "[variables('vnetName')]"
+    },
+    "publicWebIps": {
+      "type": "array",
+      "copy": {
+        "count": "[length(variables('webInstances'))]",
+        "input": "[reference(resourceId('Microsoft.Network/publicIPAddresses', variables('webInstances')[copyIndex()].pipName), '2023-04-01').ipAddress]"
+      }
+    },
+    "webPipMap": {
+      "type": "array",
+      "copy": {
+        "count": "[length(variables('webInstances'))]",
+        "input": {
+          "name": "[variables('webInstances')[copyIndex()].name]",
+          "ip": "[reference(resourceId('Microsoft.Network/publicIPAddresses', variables('webInstances')[copyIndex()].pipName), '2023-04-01').ipAddress]"
+        }
+      }
+    },
+    "nvaPrivateIp": {
+      "type": "string",
+      "value": "10.10.2.4"
+    },
+    "appPrivateIp": {
+      "type": "string",
+      "value": "10.10.3.4"
+    },
+    "adminUsernameOut": {
+      "type": "string",
+      "value": "[parameters('adminUsername')]"
+    }
+  }
+}

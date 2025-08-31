@@ -1,0 +1,14 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "adminPassword": {
+      "reference": {
+        "keyVault": {
+          "id": "/subscriptions/2a53178d-15e9-4710-b06f-e289b4e672c0/resourceGroups/FunctionAppTests/providers/Microsoft.KeyVault/vaults/vault4paramsecrets"
+        },
+        "secretName": "VmAdminPassword"
+      }
+    }
+  }
+}
