@@ -7,8 +7,9 @@ param labName string
 @description('Admin username for the Linux VMs')
 param adminUsername string
 
-@description('SSH public key (contents of your ~/.ssh/*.pub)')
-param adminPublicKey string
+@description('Admin password for the Linux VMs')
+@secure()
+param adminPassword string
 
 @description('CIDR to allow SSH from (e.g., 203.0.113.10/32). Use 0.0.0.0/0 only for testing.')
 param allowSshFrom string = '0.0.0.0/0'
@@ -223,16 +224,9 @@ resource vmApp 'Microsoft.Compute/virtualMachines@2023-09-01' = {
     osProfile: {
       computerName: vmAppName
       adminUsername: adminUsername
+      adminPassword: adminPassword
       linuxConfiguration: {
-        disablePasswordAuthentication: true
-        ssh: {
-          publicKeys: [
-            {
-              path: '/home/${adminUsername}/.ssh/authorized_keys'
-              keyData: adminPublicKey
-            }
-          ]
-        }
+        disablePasswordAuthentication: false
       }
       customData: base64(cloudInitApp)
     }
@@ -270,16 +264,9 @@ resource vmClient 'Microsoft.Compute/virtualMachines@2023-09-01' = {
     osProfile: {
       computerName: vmClientName
       adminUsername: adminUsername
+      adminPassword: adminPassword
       linuxConfiguration: {
-        disablePasswordAuthentication: true
-        ssh: {
-          publicKeys: [
-            {
-              path: '/home/${adminUsername}/.ssh/authorized_keys'
-              keyData: adminPublicKey
-            }
-          ]
-        }
+        disablePasswordAuthentication: false
       }
       customData: base64(cloudInitClient)
     }

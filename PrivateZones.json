@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.37.4.10188",
-      "templateHash": "6330322569631003698"
+      "templateHash": "9241105540717865433"
     }
   },
   "parameters": {
@@ -28,10 +28,10 @@
         "description": "Admin username for the Linux VMs"
       }
     },
-    "adminPublicKey": {
-      "type": "string",
+    "adminPassword": {
+      "type": "securestring",
       "metadata": {
-        "description": "SSH public key (contents of your ~/.ssh/*.pub)"
+        "description": "Admin password for the Linux VMs"
       }
     },
     "allowSshFrom": {
@@ -250,16 +250,9 @@
         "osProfile": {
           "computerName": "[variables('vmAppName')]",
           "adminUsername": "[parameters('adminUsername')]",
+          "adminPassword": "[parameters('adminPassword')]",
           "linuxConfiguration": {
-            "disablePasswordAuthentication": true,
-            "ssh": {
-              "publicKeys": [
-                {
-                  "path": "[format('/home/{0}/.ssh/authorized_keys', parameters('adminUsername'))]",
-                  "keyData": "[parameters('adminPublicKey')]"
-                }
-              ]
-            }
+            "disablePasswordAuthentication": false
           },
           "customData": "[base64(variables('cloudInitApp'))]"
         },
@@ -305,16 +298,9 @@
         "osProfile": {
           "computerName": "[variables('vmClientName')]",
           "adminUsername": "[parameters('adminUsername')]",
+          "adminPassword": "[parameters('adminPassword')]",
           "linuxConfiguration": {
-            "disablePasswordAuthentication": true,
-            "ssh": {
-              "publicKeys": [
-                {
-                  "path": "[format('/home/{0}/.ssh/authorized_keys', parameters('adminUsername'))]",
-                  "keyData": "[parameters('adminPublicKey')]"
-                }
-              ]
-            }
+            "disablePasswordAuthentication": false
           },
           "customData": "[base64(variables('cloudInitClient'))]"
         },
