@@ -161,7 +161,19 @@ systemctl enable nginx
   }
 }
 
-// Simple test VM to access the load balancer from
+// Public IP for test VM
+resource testVMPublicIP 'Microsoft.Network/publicIPAddresses@2023-05-01' = {
+  name: 'test-vm-pip'
+  location: location
+  sku: {
+    name: 'Basic'
+  }
+  properties: {
+    publicIPAllocationMethod: 'Dynamic'
+  }
+}
+
+// Update testVMNic to use the public IP
 resource testVMNic 'Microsoft.Network/networkInterfaces@2023-05-01' = {
   name: 'test-vm-nic'
   location: location
@@ -173,6 +185,9 @@ resource testVMNic 'Microsoft.Network/networkInterfaces@2023-05-01' = {
           privateIPAllocationMethod: 'Dynamic'
           subnet: {
             id: '${vnet.id}/subnets/${subnetName}'
+          }
+          publicIPAddress: {
+            id: testVMPublicIP.id
           }
         }
       }
@@ -222,6 +237,7 @@ output subnetName string = subnetName
 output webServer1IP string = webServer1Nic.properties.ipConfigurations[0].properties.privateIPAddress
 output webServer2IP string = webServer2Nic.properties.ipConfigurations[0].properties.privateIPAddress
 output testVMIP string = testVMNic.properties.ipConfigurations[0].properties.privateIPAddress
+output testVMPublicIP string = testVMPublicIP.properties.ipAddress
 
 output instructions string = '''
 LAB READY! 
