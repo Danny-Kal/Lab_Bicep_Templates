@@ -80,13 +80,14 @@ resource webServerNSG 'Microsoft.Network/networkSecurityGroups@2022-07-01' = {
           direction: 'Inbound'
         }
       }
+      // SSH rule for Linux management
       {
-        name: 'Allow-RDP-Inbound'
+        name: 'Allow-SSH-Inbound'
         properties: {
-          description: 'Allow RDP for management'
+          description: 'Allow SSH for management'
           protocol: 'Tcp'
           sourcePortRange: '*'
-          destinationPortRange: '3389'
+          destinationPortRange: '22'
           sourceAddressPrefix: 'Internet'
           destinationAddressPrefix: '*'
           access: 'Allow'
@@ -193,16 +194,16 @@ resource webServerVMs 'Microsoft.Compute/virtualMachines@2022-08-01' = [for i in
       computerName: 'webserver${i + 1}'
       adminUsername: adminUsername
       adminPassword: adminPassword
-      windowsConfiguration: {
-        enableAutomaticUpdates: true
+      linuxConfiguration: {
+        disablePasswordAuthentication: false
         provisionVMAgent: true
       }
     }
     storageProfile: {
       imageReference: {
-        publisher: 'MicrosoftWindowsServer'
-        offer: 'WindowsServer'
-        sku: '2022-datacenter-smalldisk-g2'
+        publisher: 'Canonical'
+        offer: 'UbuntuServer'
+        sku: '22_04-lts-gen2'
         version: 'latest'
       }
       osDisk: {
@@ -225,18 +226,18 @@ resource webServerVMs 'Microsoft.Compute/virtualMachines@2022-08-01' = [for i in
   })
 }]
 
-// Simple Custom Script Extension to enable IIS
+// Simple Custom Script Extension to enable Nginx
 resource webServerExtensions 'Microsoft.Compute/virtualMachines/extensions@2022-08-01' = [for i in range(0, numberOfVMs): {
-  name: 'EnableIIS'
+  name: 'EnableNginx'
   parent: webServerVMs[i]
   location: location
   properties: {
-    publisher: 'Microsoft.Compute'
-    type: 'CustomScriptExtension'
-    typeHandlerVersion: '1.10'
+    publisher: 'Microsoft.Azure.Extensions'
+    type: 'CustomScript'
+    typeHandlerVersion: '2.1'
     autoUpgradeMinorVersion: true
     settings: {
-      commandToExecute: 'powershell.exe Install-WindowsFeature -name Web-Server -IncludeManagementTools'
+      commandToExecute: 'bash -c "sudo apt-get update && sudo apt-get install -y nginx"'
     }
   }
 }]
